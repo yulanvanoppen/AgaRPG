@@ -30,7 +30,7 @@ public class WeaponRecoil : NetworkBehaviour
     private float _time = 0f;
 
     [HideInInspector] public Unity.Cinemachine.CinemachineImpulseSource _impulseSource;
-    private Unity.Cinemachine.Cinemachine3rdPersonFollow _aimVirtualCameraFollow;
+    private Unity.Cinemachine.CinemachineThirdPersonFollow _aimVirtualCameraFollow;
 
     private PlayerMovement _playerMovement;
     private PlayerCameraControl _playerCameraControl;

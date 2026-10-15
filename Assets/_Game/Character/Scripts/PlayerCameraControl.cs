@@ -37,7 +37,7 @@ public class PlayerCameraControl : NetworkBehaviour
     public float cinemachineTargetYaw;
     public float cinemachineTargetPitch;
     private GameObject _mainCameraGO;
-    private Unity.Cinemachine.CinemachineVirtualCamera _followVirtualCamera;
+    private Unity.Cinemachine.CinemachineCamera _followVirtualCamera;
     private float _targetCameraDistance = 3;
 
     // input 

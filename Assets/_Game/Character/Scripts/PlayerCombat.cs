@@ -76,8 +76,8 @@ public class PlayerCombat : NetworkBehaviour
     public float rayOffset = 1f;
 
     // cinemachine
-    private Unity.Cinemachine.CinemachineVirtualCamera _aimVirtualCamera;
-    private Unity.Cinemachine.CinemachineVirtualCamera _meleeVirtualCamera;
+    private Unity.Cinemachine.CinemachineCamera _aimVirtualCamera;
+    private Unity.Cinemachine.CinemachineCamera _meleeVirtualCamera;
 
     // input
 #if ENABLE_INPUT_SYSTEM
