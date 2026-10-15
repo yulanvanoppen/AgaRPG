@@ -7,10 +7,7 @@ using FishNet.Object.Synchronizing;
 using FishNet.Transporting;
 using System.Collections;
 using FishNet.Connection;
-using Unity.VisualScripting;
 using FishNet;
-using UnityEngine.Rendering.Universal;
-using static UnityEngine.Rendering.DebugUI;
 
 /* Note: animations are called via the controller for both the character and capsule using animator null checks
  */
@@ -20,8 +17,13 @@ public class PlayerAttributes : NetworkBehaviour
     [Tooltip("(Maximum) number of hitpoints")]
     public float maxHealth = 100f;
 
-    [field: SyncVar(Channel = Channel.Reliable, OnChange = nameof(OnHealth))]
-    public float health = 100f;
+    // health: written by the server only
+    private readonly SyncVar<float> _health = new(100f);
+    public float health
+    {
+        get => _health.Value;
+        set => _health.Value = value;      // server only
+    }
 
     [Tooltip("Floating healthbar UI element")]
     public FloatingHealthBar HealthBar;
@@ -40,17 +42,31 @@ public class PlayerAttributes : NetworkBehaviour
     // player
     private Transform _mesh;
 
-    [field: SyncVar(Channel = Channel.Unreliable, ReadPermissions = ReadPermission.ExcludeOwner, OnChange = nameof(OnColored))]
-    private Color _color { get; [ServerRpc(RunLocally = true)] set; } = Color.white;
+    // color: the owner keeps a local copy and sends it to the server (ServerRpcSetColor),
+    // the server pushes it to everyone except the owner through the SyncVar
+    private Color _color = Color.white;
+    private readonly SyncVar<Color> _colorSync = new(
+        Color.white,
+        new SyncTypeSettings(WritePermission.ServerOnly, ReadPermission.ExcludeOwner, 0.1f, Channel.Unreliable));
 
-    [field: SyncVar(Channel = Channel.Reliable)]
-    [HideInInspector] public bool dead = false;
+    // server-written flags
+    private readonly SyncVar<bool> _dead = new();
+    public bool dead
+    {
+        get => _dead.Value;
+        set => _dead.Value = value;        // server only
+    }
 
-    [field: SyncVar(Channel = Channel.Reliable, OnChange = nameof(OnScaled))]
-    [HideInInspector] public float size { get; [ServerRpc(RequireOwnership = false, RunLocally = true)] set; } = 1f;
+    private readonly SyncVar<bool> _spawnProtection = new();
+    public bool spawnProtection
+    {
+        get => _spawnProtection.Value;
+        set => _spawnProtection.Value = value;   // server only
+    }
 
-    [field: SyncVar(Channel = Channel.Reliable)]
-    [HideInInspector] public bool spawnProtection = false;
+    // size: read-only here, change it through Scale()
+    private readonly SyncVar<float> _size = new(1f);
+    public float size => _size.Value;
 
 
     private void OnHealth(float prev, float next, bool asServer)
@@ -61,10 +77,10 @@ public class PlayerAttributes : NetworkBehaviour
     private void OnScaled(float prev, float next, bool asServer)
     {
         transform.localScale = Vector3.one * next;
-        if (base.IsOwner) 
+        if (base.IsOwner)
         {
-            Debug.Log($"Scaling to {size}");
-            _ = _cloudSaveManager.UpdateSize(size);
+            Debug.Log($"Scaling to {next}");
+            _ = _cloudSaveManager.UpdateSize(next);
         }
     }
 
@@ -76,6 +92,10 @@ public class PlayerAttributes : NetworkBehaviour
 
     private async void Awake()
     {
+        _health.OnChange += OnHealth;
+        _size.OnChange += OnScaled;
+        _colorSync.OnChange += OnColored;
+
         if (_cloudSaveManager == null)
             _cloudSaveManager = GameObject.FindGameObjectWithTag("CloudSaveManager")
                                           .GetComponent<CloudSaveManager>();
@@ -83,8 +103,6 @@ public class PlayerAttributes : NetworkBehaviour
         _animation = GetComponent<PlayerAnimation>();
         _mesh = transform.Find("Graphical").transform.Find("Geometry")
                                            .transform.Find("Armature_Mesh");
-
-        health = maxHealth;
 
         if (_cloudSaveManager.name == "TestCSManager")
         {
@@ -95,6 +113,13 @@ public class PlayerAttributes : NetworkBehaviour
             GetComponent<NetworkObject>().GiveOwnership(InstanceFinder.ClientManager.Connection);
             Initialize();
         }
+    }
+
+
+    public override void OnStartServer()
+    {
+        base.OnStartServer();
+        _health.Value = maxHealth;
     }
 
 
@@ -114,8 +139,8 @@ public class PlayerAttributes : NetworkBehaviour
         {
             _color = _cloudSaveManager.playerColor;
             ChangeColor(_color);
-            size = _cloudSaveManager.playerSize;
-            Scale(size);
+            ServerRpcSetColor(_color);
+            Scale(_cloudSaveManager.playerSize);
             RpcSpawnWithProtection();
         }
     }
@@ -128,21 +153,27 @@ public class PlayerAttributes : NetworkBehaviour
         CheckColorChanged();
     }
 
-    
+
     public void Scale(float value)
     {
         value = Mathf.Clamp(value, 1f, 2f);
-        if (size != value)
-        {
-            size = value;
-            if (base.IsOwner)
-            {
-                Debug.Log($"Scaling to {size}");
-                _ = _cloudSaveManager.UpdateSize(size);
-            }
-                
-        }
-        transform.localScale = Vector3.one * size;
+        transform.localScale = Vector3.one * value;     // apply locally right away
+        if (_size.Value == value) return;
+
+        if (base.IsServer) _size.Value = value;
+        else ServerRpcSetSize(value);
+    }
+
+
+    [ServerRpc(RequireOwnership = false)]
+    private void ServerRpcSetSize(float value) => _size.Value = Mathf.Clamp(value, 1f, 2f);
+
+
+    [ServerRpc]
+    private void ServerRpcSetColor(Color color)
+    {
+        _color = color;              // server's copy, used by SpawnProtectionCoroutine
+        _colorSync.Value = color;    // pushes to non-owner clients
     }
 
 
@@ -157,6 +188,7 @@ public class PlayerAttributes : NetworkBehaviour
     {
         _color = _menuManager.color;
         ChangeColor(_color);
+        ServerRpcSetColor(_color);
         if (!_cloudSaveManager.playerColor.Equals(_color))
             await _cloudSaveManager.UpdateColor(_color);
     }

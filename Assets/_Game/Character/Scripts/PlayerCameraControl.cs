@@ -1,6 +1,7 @@
 ﻿
 using FishNet.Object;
 using System.Threading.Tasks;
+using Unity.Cinemachine;
 using UnityEngine;
 
 #if ENABLE_INPUT_SYSTEM
@@ -37,7 +38,8 @@ public class PlayerCameraControl : NetworkBehaviour
     public float cinemachineTargetYaw;
     public float cinemachineTargetPitch;
     private GameObject _mainCameraGO;
-    private Unity.Cinemachine.CinemachineCamera _followVirtualCamera;
+    private CinemachineCamera _followVirtualCamera;
+    private CinemachineThirdPersonFollow _follow;
     private float _targetCameraDistance = 3;
 
     // input 
@@ -88,7 +90,12 @@ public class PlayerCameraControl : NetworkBehaviour
         if (_mainCameraGO != null) return;
 
         _mainCameraGO = GameObject.FindGameObjectWithTag("MainCamera");
-        _followVirtualCamera = GameObject.FindGameObjectWithTag("PlayerFollowCamera").GetComponent<Unity.Cinemachine.CinemachineVirtualCamera>();
+        var camObject = GameObject.FindGameObjectWithTag("PlayerFollowCamera");
+        _followVirtualCamera = camObject.GetComponent<CinemachineCamera>();
+        _follow = camObject.GetComponent<CinemachineThirdPersonFollow>();
+
+        if (_follow == null)
+            Debug.LogError("PlayerFollowCamera has no CinemachineThirdPersonFollow. Did the scene/prefab upgrade run?");
 
         if (base.IsOwner) _followVirtualCamera.Follow = CinemachineCameraTarget.transform;
     }
@@ -143,18 +150,13 @@ public class PlayerCameraControl : NetworkBehaviour
                 if (_targetCameraDistance < 10f) _targetCameraDistance += .5f;
             }
 
-            var follow = _followVirtualCamera.GetCinemachineComponent<Unity.Cinemachine.Cinemachine3rdPersonFollow>();
-            follow.CameraDistance = Mathf.Lerp(follow.CameraDistance, _targetCameraDistance, 2f * Time.deltaTime);
-            follow.CameraSide = 0.8f + 0.1f * Mathf.Pow(follow.CameraDistance - 10f, 2f) / 56.25f;
+            _follow.CameraDistance = Mathf.Lerp(_follow.CameraDistance, _targetCameraDistance, 2f * Time.deltaTime);
+            _follow.CameraSide = 0.8f + 0.1f * Mathf.Pow(_follow.CameraDistance - 10f, 2f) / 56.25f;
         }
     }
 
 
-    public float GetCameraDistance()
-    {
-        var follow = _followVirtualCamera.GetCinemachineComponent<Unity.Cinemachine.Cinemachine3rdPersonFollow>();
-        return follow.CameraDistance;
-    }
+    public float GetCameraDistance() => _follow.CameraDistance;
 
 
     private static float ClampAngle(float lfAngle, float lfMin, float lfMax)

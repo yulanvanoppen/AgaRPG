@@ -209,13 +209,15 @@ public class PlayerMovement : NetworkBehaviour
     private void TimeManager_OnTick()
     {
         Move(BuildMoveData());
+        CreateReconcile();      // call on every instance; only the server actually sends the reconcile
+    }
 
-        if (base.IsServer)
-        {
-            ReconcileData rd = new ReconcileData(transform.position, _targetRotation, _verticalVelocity,
-                                                 _fallTimeoutDelta, _jumpTimeoutDelta, Grounded);
-            Reconciliation(rd);
-        }
+
+    public override void CreateReconcile()
+    {
+        ReconcileData rd = new ReconcileData(transform.position, _targetRotation, _verticalVelocity,
+                                             _fallTimeoutDelta, _jumpTimeoutDelta, Grounded);
+        Reconciliation(rd);
     }
 
 
@@ -259,8 +261,7 @@ public class PlayerMovement : NetworkBehaviour
 
     private void MoveWithData(MoveData md, float delta, ReplicateState state = ReplicateState.Invalid)
     {
-        bool replaying = (state == ReplicateState.ReplayedUserCreated
-                           || state == ReplicateState.ReplayedPredicted);
+        bool replaying = (state & ReplicateState.Replayed) != 0;
 
         bool combat = md.Aim && _weapons.rangedWeapon != null
                       || _state.Is(MeleeState.Readied, MeleeState.Striking, MeleeState.Blocking);
@@ -329,8 +330,7 @@ public class PlayerMovement : NetworkBehaviour
 
     private void JumpAndGravity(MoveData md, float delta, ReplicateState state)
     {
-        bool replaying = (state == ReplicateState.ReplayedUserCreated
-                           || state == ReplicateState.ReplayedPredicted);
+        bool replaying = (state & ReplicateState.Replayed) != 0;
 
         if (Grounded)
         {
@@ -386,141 +386,4 @@ public class PlayerMovement : NetworkBehaviour
             new Vector3(transform.position.x, transform.position.y - GroundedOffset, transform.position.z),
             GroundedRadius);
     }
-
-
-
-    //private void Update()
-    //{
-    //    if (!base.IsOwner) return;
-
-    //    JumpAndGravity();
-    //    GroundedCheck();
-    //    Move();
-    //}
-
-
-    //private void Move()
-    //{
-    //    bool aiming = _input.aim && _weapons.weapon != null;
-
-    //    // set target speed based on move speed, sprint speed and if sprint is pressed
-    //    float backCorrection = aiming && Input.GetAxis("Vertical") < -.9
-    //                                  && Mathf.Abs(Input.GetAxis("Horizontal")) < .5 ? .7f : 1;
-    //    float targetSpeed = _input.sprint && !aiming ? SprintSpeed : MoveSpeed * backCorrection;
-    //    targetSpeed *= _state.size;
-
-    //    // a simplistic acceleration and deceleration designed to be easy to remove, replace, or iterate upon
-
-    //    // note: Vector2's == operator uses approximation so is not floating point error prone, and is cheaper than magnitude
-    //    // if there is no input, set the target speed to 0
-    //    if (_input.move == Vector2.zero || _state.dead) targetSpeed = 0.0f;
-        
-
-    //    // a reference to the players current horizontal velocity
-    //    float currentHorizontalSpeed = new Vector3(_controller.velocity.x, 0.0f, _controller.velocity.z).magnitude;
-
-    //    float speedOffset = 0.1f;
-    //    float inputMagnitude = _input.analogMovement ? _input.move.magnitude : 1f;
-
-    //    // accelerate or decelerate to target speed
-    //    if (currentHorizontalSpeed < targetSpeed - speedOffset ||
-    //        currentHorizontalSpeed > targetSpeed + speedOffset)
-    //    {
-    //        // creates curved result rather than a linear one giving a more organic speed change
-    //        // note T in Lerp is clamped, so we don't need to clamp our speed
-    //        speed = Mathf.Lerp(currentHorizontalSpeed, targetSpeed * inputMagnitude,
-    //            Time.deltaTime * SpeedChangeRate);
-
-    //        // round speed to 3 decimal places
-    //        speed = Mathf.Round(speed * 1000f) / 1000f;
-    //    }
-    //    else
-    //        speed = targetSpeed;
-
-    //    // normalise input direction
-    //    Vector3 inputDirection = new Vector3(_input.move.x, 0.0f, _input.move.y).normalized;
-
-    //    // note: Vector2's != operator uses approximation so is not floating point error prone, and is cheaper than magnitude
-    //    // if there is a move input rotate player when the player is moving
-    //    if (_input.move != Vector2.zero && !_state.dead)
-    //    {
-    //        _targetRotation = Mathf.Atan2(inputDirection.x, inputDirection.z) * Mathf.Rad2Deg + _cameraControl.EulerAngles().y;
-    //        float rotation = Mathf.SmoothDampAngle(transform.eulerAngles.y, _targetRotation, ref _rotationVelocity,
-    //            RotationSmoothTime);
-
-    //        // rotate to face input direction relative to camera position
-    //        //if (!aiming) 
-    //        transform.rotation = Quaternion.Euler(0.0f, _targetRotation, 0.0f);
-    //    }
-
-
-    //    Vector3 targetDirection = Quaternion.Euler(0.0f, _targetRotation, 0.0f) * Vector3.forward;
-
-    //    // move the player
-    //    if (!_state.dead)
-    //        _controller.Move(targetDirection.normalized * (speed * Time.deltaTime) +
-    //                         new Vector3(0.0f, _verticalVelocity, 0.0f) * Time.deltaTime);
-
-    //    // update animator if using character
-    //    _animationBlend = Mathf.Lerp(_animationBlend, targetSpeed / _state.size, Time.deltaTime * SpeedChangeRate);
-    //    if (_animationBlend < 0.01f) _animationBlend = 0f;
-
-    //    _directionalSpeed = Vector2.Lerp(_directionalSpeed, _input.move, Time.deltaTime * SpeedChangeRate / MoveSpeed);
-
-    //    _animation.SetSpeed(_animationBlend);
-    //    _animation.SetMotionSpeed(inputMagnitude);
-    //    _animation.SetForward(_directionalSpeed.x * targetSpeed / _state.size);
-    //    _animation.SetStrafe(_directionalSpeed.y * targetSpeed / _state.size);
-    //}
-
-
-    //private void JumpAndGravity()
-    //{
-    //    if (Grounded)
-    //    {
-    //        // reset the fall timeout timer
-    //        _fallTimeoutDelta = FallTimeout;
-
-    //        // update animator if using character
-    //        _animation.SetJump(false);
-    //        _animation.SetFreeFall(false);
-
-    //        // stop our velocity dropping infinitely when grounded
-    //        if (_verticalVelocity < 0.0f)
-    //            _verticalVelocity = -2f;
-
-    //        // Jump
-    //        if ((_input.jump && !_state.dead) && _jumpTimeoutDelta <= 0.0f)
-    //        {
-    //            // the square root of H * -2 * G = how much velocity needed to reach desired height
-    //            _verticalVelocity = Mathf.Sqrt(JumpHeight * _state.size * -2f * Gravity);
-
-    //            // update animator if using character
-    //            _animation.SetJump(true);
-    //        }
-
-    //        // jump timeout
-    //        if (_jumpTimeoutDelta >= 0.0f)
-    //            _jumpTimeoutDelta -= Time.deltaTime;
-    //    }
-    //    else
-    //    {
-    //        // reset the jump timeout timer
-    //        _jumpTimeoutDelta = JumpTimeout;
-
-    //        // fall timeout
-    //        if (_fallTimeoutDelta >= 0.0f)
-    //            _fallTimeoutDelta -= Time.deltaTime;
-    //        else
-    //            // update animator if using character
-    //            _animation.SetFreeFall(true);
-
-    //        // if we are not grounded, do not jump
-    //        _input.jump = false;
-    //    }
-
-    //    // apply gravity over time if under terminal (multiply by delta time twice to linearly speed up over time)
-    //    if (_verticalVelocity < _terminalVelocity)
-    //        _verticalVelocity += Gravity * Time.deltaTime;
-    //}
 }

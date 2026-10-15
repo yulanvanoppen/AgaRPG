@@ -23,7 +23,7 @@ public class AuthenticationManager : MonoBehaviour
     public Button signOutButton;
 
     private Lobby _connectedLobby;
-    private FishyUnityTransport _transport;
+    private UnityTransport _transport;
     private const string JoinCodeKey = "j";
 
     private Lobby _currentLobby = null;
@@ -36,7 +36,7 @@ public class AuthenticationManager : MonoBehaviour
 
     protected virtual void Awake()
     {
-        _transport = FindObjectOfType<FishyUnityTransport>();
+        _transport = FindObjectOfType<UnityTransport>();
 
         GameObject[] objs = GameObject.FindGameObjectsWithTag("AuthenticationManager");
         if (objs.Length > 1) Destroy(this.gameObject); 

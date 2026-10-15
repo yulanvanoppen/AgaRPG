@@ -5,6 +5,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Net;
+using Unity.Cinemachine;
 using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -54,8 +55,8 @@ public class WeaponRecoil : NetworkBehaviour
         _horMean /= _recoilPattern.Length;
 
         if (IsOwner) _aimVirtualCameraFollow = GameObject.FindGameObjectWithTag("PlayerAimCamera")
-                                                         .GetComponent<Unity.Cinemachine.CinemachineVirtualCamera>()
-                                                         .GetCinemachineComponent<Unity.Cinemachine.Cinemachine3rdPersonFollow>();
+                                                         .GetComponent<Unity.Cinemachine.CinemachineCamera>()
+                                                         .GetComponent<CinemachineThirdPersonFollow>();
         _initalized = true;
     }
 
@@ -114,8 +115,8 @@ public class WeaponRecoil : NetworkBehaviour
         {
             if (_aimVirtualCameraFollow == null)
                 _aimVirtualCameraFollow = GameObject.FindGameObjectWithTag("PlayerAimCamera")
-                                                    .GetComponent<Unity.Cinemachine.CinemachineVirtualCamera>()
-                                                    .GetCinemachineComponent<Unity.Cinemachine.Cinemachine3rdPersonFollow>();
+                                                    .GetComponent<Unity.Cinemachine.CinemachineCamera>()
+                                                    .GetComponent<CinemachineThirdPersonFollow>();
             if (_aimVirtualCameraFollow.CameraDistance > 2)
                 _aimVirtualCameraFollow.CameraDistance = Mathf.Lerp(_aimVirtualCameraFollow.CameraDistance, 
                                                                     2, recoverySpeed * Time.deltaTime);
