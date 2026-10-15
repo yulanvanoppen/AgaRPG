@@ -261,7 +261,7 @@ public class PlayerCombat : NetworkBehaviour
     }
 
 
-    [ReconcileV2]
+    [Reconcile]
     private void Reconciliation(ReconcileData rd, Channel channel = Channel.Unreliable)
     {
         _aimTarget.position = rd.AimTargetPosition;
@@ -301,7 +301,7 @@ public class PlayerCombat : NetworkBehaviour
     }
 
 
-    [ReplicateV2]
+    [Replicate]
     private void Attack(CombatData cd, ReplicateState state = ReplicateState.Invalid, Channel channel = Channel.Unreliable)
     {
         if (!base.IsOwner)
@@ -856,7 +856,7 @@ public class PlayerCombat : NetworkBehaviour
     //    }
 
 
-    //    [ReconcileV2]
+    //    [Reconcile]
     //    private void Reconciliation(ReconcileData rd, Channel channel = Channel.Unreliable)
     //    {
     //        _aimTarget.position = rd.AimTargetPosition;
@@ -882,7 +882,7 @@ public class PlayerCombat : NetworkBehaviour
     //    }
 
 
-    //    [ReplicateV2]
+    //    [Replicate]
     //    private void Attack(CombatData ad, ReplicateState state = ReplicateState.Invalid, Channel channel = Channel.Unreliable)
     //    {
     //        AttackWithData(ad, (float)base.TimeManager.TickDelta, state);

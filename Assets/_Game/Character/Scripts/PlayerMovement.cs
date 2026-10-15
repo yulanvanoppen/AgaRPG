@@ -219,7 +219,7 @@ public class PlayerMovement : NetworkBehaviour
     }
 
 
-    [ReconcileV2]
+    [Reconcile]
     private void Reconciliation(ReconcileData rd, Channel channel = Channel.Unreliable)
     {
         transform.position = rd.Position;
@@ -248,7 +248,7 @@ public class PlayerMovement : NetworkBehaviour
     }
 
 
-    [ReplicateV2]
+    [Replicate]
     private void Move(MoveData md, ReplicateState state = ReplicateState.Invalid, Channel channel = Channel.Unreliable)
     {
         JumpAndGravity(md, (float)base.TimeManager.TickDelta, state);
