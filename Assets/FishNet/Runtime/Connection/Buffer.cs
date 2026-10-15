@@ -18,7 +18,7 @@ namespace FishNet.Connection
         /// <summary>
         /// How many more bytes may fit into the buffer.
         /// </summary>
-        internal int Remaining => (Size - Length);
+        internal int Remaining => Size - Length;
         /// <summary>
         /// Buffer data.
         /// </summary>
@@ -53,6 +53,7 @@ namespace FishNet.Connection
             if (Data != null)
                 ByteArrayPool.Store(Data);
             Data = null;
+            Reset();
         }
 
         /// <summary>
@@ -67,32 +68,32 @@ namespace FishNet.Connection
         /// <summary>
         /// Copies segments without error checking, including tick for the first time data is added.
         /// </summary>
-        /// <param name="segment"></param>
+        /// <param name = "segment"></param>
         internal void CopySegment(uint tick, ArraySegment<byte> segment)
         {
             /* If data has not been written to buffer yet
-            * then write tick to the start. */
+             * then write tick to the start. */
             if (!HasData)
             {
                 int pos = 0;
-                WriterExtensions.WriteUInt32(Data, tick, ref pos);
+                Writer.WriteUInt32Unpacked(Data, tick, ref pos);
             }
 
             Buffer.BlockCopy(segment.Array, segment.Offset, Data, Length, segment.Count);
             Length += segment.Count;
             HasData = true;
         }
+
         /// <summary>
         /// Copies segments without error checking.
         /// </summary>
-        /// <param name="segment"></param>
+        /// <param name = "segment"></param>
         internal void CopySegment(ArraySegment<byte> segment)
         {
             Buffer.BlockCopy(segment.Array, segment.Offset, Data, Length, segment.Count);
             Length += segment.Count;
             HasData = true;
         }
-
     }
 
     internal class PacketBundle
@@ -100,11 +101,11 @@ namespace FishNet.Connection
         /// <summary>
         /// True if data has been written.
         /// </summary>
-        internal bool HasData => (_buffers[0].HasData || (!_isSendLastBundle && _sendLastBundle.HasData));
+        internal bool HasData => _buffers[0].HasData || (!_isSendLastBundle && _sendLastBundle.HasData);
         /// <summary>
         /// All buffers written. Collection is not cleared when reset but rather the index in which to write is.
         /// </summary>
-        private List<ByteBuffer> _buffers = new List<ByteBuffer>();
+        private List<ByteBuffer> _buffers = new();
         /// <summary>
         /// Buffer which is being written to.
         /// </summary>
@@ -116,7 +117,7 @@ namespace FishNet.Connection
         /// <summary>
         /// Number of buffers written to. Will return 0 if nothing has been written.
         /// </summary>
-        public int WrittenBuffers => (!HasData) ? 0 : (_bufferIndex + 1);
+        public int WrittenBuffers => !HasData ? 0 : _bufferIndex + 1;
         /// <summary>
         /// Number of bytes to reserve at the beginning of each buffer.
         /// </summary>
@@ -136,10 +137,10 @@ namespace FishNet.Connection
 
         internal PacketBundle(NetworkManager manager, int mtu, int reserve = 0, DataOrderType orderType = DataOrderType.Default)
         {
-            _isSendLastBundle = (orderType == DataOrderType.Last);
-            //If this is not the send last packetbundle then make a new one.
+            _isSendLastBundle = orderType == DataOrderType.Last;
+            // If this is not the send last packetBundle then make a new one.
             if (!_isSendLastBundle)
-                _sendLastBundle = new PacketBundle(manager, mtu, reserve, DataOrderType.Last);
+                _sendLastBundle = new(manager, mtu, reserve, DataOrderType.Last);
 
             _networkManager = manager;
             _maximumTransportUnit = mtu;
@@ -147,9 +148,9 @@ namespace FishNet.Connection
              * Modify reserve after making sendLast bundle
              * so that the wrong reserve is not passed into
              * the sendLast bundle. */
-            reserve += TransportManager.TICK_BYTES;
+            reserve += TransportManager.UNPACKED_TICK_LENGTH;
             _reserve = reserve;
-            //Add buffer requires the right reserve so call after setting.
+            // Add buffer requires the right reserve so call after setting.
             AddBuffer();
 
             Reset(false);
@@ -168,7 +169,7 @@ namespace FishNet.Connection
         /// </summary>
         private ByteBuffer AddBuffer()
         {
-            ByteBuffer ba = new ByteBuffer(_maximumTransportUnit, _reserve);
+            ByteBuffer ba = new(_maximumTransportUnit, _reserve);
             _buffers.Add(ba);
             return ba;
         }
@@ -190,7 +191,7 @@ namespace FishNet.Connection
         /// <summary>
         /// Writes a segment to this packet bundle using the current WriteIndex.
         /// </summary>
-        /// <param name="forceNewBuffer">True to force data into a new buffer.</param>
+        /// <param name = "forceNewBuffer">True to force data into a new buffer.</param>
         internal void Write(ArraySegment<byte> segment, bool forceNewBuffer = false, DataOrderType orderType = DataOrderType.Default)
         {
             /* If not the send last bundle and to send data last
@@ -201,7 +202,7 @@ namespace FishNet.Connection
                 return;
             }
 
-            //Nothing to be written.
+            // Nothing to be written.
             if (segment.Count == 0)
                 return;
 
@@ -215,18 +216,35 @@ namespace FishNet.Connection
                 return;
             }
 
-
+            /* A buffer is added during initialization, so one
+             * will always be present. */
             ByteBuffer ba = _buffers[_bufferIndex];
-            /* Make a new buffer if...
-             * forcing a new buffer and data has already been written to the current.
-             * or---
-             * segment.Count is more than what is remaining in the buffer. */
-            bool useNewBuffer = (forceNewBuffer && ba.Length > _reserve) ||
-                (segment.Count > ba.Remaining);
-            if (useNewBuffer)
+
+            //True if nothing has been written to the buffer.
+            bool isBufferEmpty = ba.Length == _reserve;
+
+            /* If nothing has been written yet there
+             * is no reason to force a new buffer. */
+            if (isBufferEmpty)
+            {
+                forceNewBuffer = false;
+            }
+            else
+            {
+                if (!forceNewBuffer)
+                {
+                    bool canBufferHoldSegmentCount = segment.Count <= ba.Remaining;
+
+                    if (!canBufferHoldSegmentCount)
+                        forceNewBuffer = true;
+                }
+            }
+
+            if (forceNewBuffer)
             {
                 _bufferIndex++;
-                //If need to make a new buffer then do so.
+
+                // If need to make a new buffer then do so.
                 if (_buffers.Count <= _bufferIndex)
                 {
                     ba = AddBuffer();
@@ -251,8 +269,8 @@ namespace FishNet.Connection
         /// <summary>
         /// Gets a buffer for the specified index. Returns true and outputs the buffer if it was successfully found.
         /// </summary>
-        /// <param name="index">Index of the buffer to retrieve.</param>
-        /// <param name="bb">Buffer retrieved from the list. Null if the specified buffer was not found.</param>
+        /// <param name = "index">Index of the buffer to retrieve.</param>
+        /// <param name = "bb">Buffer retrieved from the list. Null if the specified buffer was not found.</param>
         internal bool GetBuffer(int index, out ByteBuffer bb)
         {
             bb = null;
@@ -275,11 +293,11 @@ namespace FishNet.Connection
         /// <summary>
         /// Returns a PacketBundle for a channel. ResetPackets must be called afterwards.
         /// </summary>
-        /// <param name="channel"></param>
+        /// <param name = "channel"></param>
         /// <returns>True if PacketBundle is valid on the index and contains data.</returns>
         internal static bool GetPacketBundle(int channel, List<PacketBundle> bundles, out PacketBundle mtuBuffer)
         {
-            //Out of bounds.
+            // Out of bounds.
             if (channel >= bundles.Count)
             {
                 mtuBuffer = null;
@@ -290,7 +308,4 @@ namespace FishNet.Connection
             return mtuBuffer.HasData;
         }
     }
-
-
-
 }

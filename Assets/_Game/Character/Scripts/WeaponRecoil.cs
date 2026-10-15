@@ -1,4 +1,4 @@
-using Cinemachine;
+
 using FishNet.Component.Animating;
 using FishNet.Object;
 using System.Collections;
@@ -29,8 +29,8 @@ public class WeaponRecoil : NetworkBehaviour
     private int _animIDRecoil;
     private float _time = 0f;
 
-    [HideInInspector] public CinemachineImpulseSource _impulseSource;
-    private Cinemachine3rdPersonFollow _aimVirtualCameraFollow;
+    [HideInInspector] public Unity.Cinemachine.CinemachineImpulseSource _impulseSource;
+    private Unity.Cinemachine.Cinemachine3rdPersonFollow _aimVirtualCameraFollow;
 
     private PlayerMovement _playerMovement;
     private PlayerCameraControl _playerCameraControl;
@@ -42,7 +42,7 @@ public class WeaponRecoil : NetworkBehaviour
     public void Initialize()
     {
         _animIDRecoil = Animator.StringToHash("Recoil");
-        _impulseSource = GetComponentInChildren<CinemachineImpulseSource>();
+        _impulseSource = GetComponentInChildren<Unity.Cinemachine.CinemachineImpulseSource>();
         _playerMovement = transform.root.GetComponent<PlayerMovement>();
         _playerCameraControl = transform.root.GetComponent<PlayerCameraControl>();
         _input = transform.root.GetComponent<InputController>();
@@ -54,8 +54,8 @@ public class WeaponRecoil : NetworkBehaviour
         _horMean /= _recoilPattern.Length;
 
         if (IsOwner) _aimVirtualCameraFollow = GameObject.FindGameObjectWithTag("PlayerAimCamera")
-                                                         .GetComponent<CinemachineVirtualCamera>()
-                                                         .GetCinemachineComponent<Cinemachine3rdPersonFollow>();
+                                                         .GetComponent<Unity.Cinemachine.CinemachineVirtualCamera>()
+                                                         .GetCinemachineComponent<Unity.Cinemachine.Cinemachine3rdPersonFollow>();
         _initalized = true;
     }
 
@@ -114,8 +114,8 @@ public class WeaponRecoil : NetworkBehaviour
         {
             if (_aimVirtualCameraFollow == null)
                 _aimVirtualCameraFollow = GameObject.FindGameObjectWithTag("PlayerAimCamera")
-                                                    .GetComponent<CinemachineVirtualCamera>()
-                                                    .GetCinemachineComponent<Cinemachine3rdPersonFollow>();
+                                                    .GetComponent<Unity.Cinemachine.CinemachineVirtualCamera>()
+                                                    .GetCinemachineComponent<Unity.Cinemachine.Cinemachine3rdPersonFollow>();
             if (_aimVirtualCameraFollow.CameraDistance > 2)
                 _aimVirtualCameraFollow.CameraDistance = Mathf.Lerp(_aimVirtualCameraFollow.CameraDistance, 
                                                                     2, recoverySpeed * Time.deltaTime);

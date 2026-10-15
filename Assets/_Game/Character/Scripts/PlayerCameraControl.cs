@@ -1,4 +1,4 @@
-﻿using Cinemachine;
+﻿
 using FishNet.Object;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -37,7 +37,7 @@ public class PlayerCameraControl : NetworkBehaviour
     public float cinemachineTargetYaw;
     public float cinemachineTargetPitch;
     private GameObject _mainCameraGO;
-    private CinemachineVirtualCamera _followVirtualCamera;
+    private Unity.Cinemachine.CinemachineVirtualCamera _followVirtualCamera;
     private float _targetCameraDistance = 3;
 
     // input 
@@ -88,7 +88,7 @@ public class PlayerCameraControl : NetworkBehaviour
         if (_mainCameraGO != null) return;
 
         _mainCameraGO = GameObject.FindGameObjectWithTag("MainCamera");
-        _followVirtualCamera = GameObject.FindGameObjectWithTag("PlayerFollowCamera").GetComponent<CinemachineVirtualCamera>();
+        _followVirtualCamera = GameObject.FindGameObjectWithTag("PlayerFollowCamera").GetComponent<Unity.Cinemachine.CinemachineVirtualCamera>();
 
         if (base.IsOwner) _followVirtualCamera.Follow = CinemachineCameraTarget.transform;
     }
@@ -143,7 +143,7 @@ public class PlayerCameraControl : NetworkBehaviour
                 if (_targetCameraDistance < 10f) _targetCameraDistance += .5f;
             }
 
-            var follow = _followVirtualCamera.GetCinemachineComponent<Cinemachine3rdPersonFollow>();
+            var follow = _followVirtualCamera.GetCinemachineComponent<Unity.Cinemachine.Cinemachine3rdPersonFollow>();
             follow.CameraDistance = Mathf.Lerp(follow.CameraDistance, _targetCameraDistance, 2f * Time.deltaTime);
             follow.CameraSide = 0.8f + 0.1f * Mathf.Pow(follow.CameraDistance - 10f, 2f) / 56.25f;
         }
@@ -152,7 +152,7 @@ public class PlayerCameraControl : NetworkBehaviour
 
     public float GetCameraDistance()
     {
-        var follow = _followVirtualCamera.GetCinemachineComponent<Cinemachine3rdPersonFollow>();
+        var follow = _followVirtualCamera.GetCinemachineComponent<Unity.Cinemachine.Cinemachine3rdPersonFollow>();
         return follow.CameraDistance;
     }
 

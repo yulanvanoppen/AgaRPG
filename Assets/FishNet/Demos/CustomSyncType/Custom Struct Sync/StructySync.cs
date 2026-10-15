@@ -1,4 +1,5 @@
-﻿using FishNet.Documenting;
+﻿using FishNet.Managing;
+using FishNet.Documenting;
 using FishNet.Object.Synchronizing;
 using FishNet.Object.Synchronizing.Internal;
 using FishNet.Serializing;
@@ -46,6 +47,7 @@ namespace FishNet.Example.CustomSyncObject
                 Data = data;
             }
         }
+
         /// <summary>
         /// Types of changes. This is related to ChangedData
         /// where you can specify what has changed.
@@ -62,10 +64,11 @@ namespace FishNet.Example.CustomSyncObject
         /// <summary>
         /// Delegate signature for when Structy changes.
         /// </summary>
-        /// <param name="op"></param>
-        /// <param name="oldItem"></param>
-        /// <param name="newItem"></param>
+        /// <param name = "op"></param>
+        /// <param name = "oldItem"></param>
+        /// <param name = "newItem"></param>
         public delegate void CustomChanged(CustomOperation op, Structy oldItem, Structy newItem, bool asServer);
+
         /// <summary>
         /// Called when the Structy changes.
         /// </summary>
@@ -73,7 +76,7 @@ namespace FishNet.Example.CustomSyncObject
         /// <summary>
         /// Current value of Structy.
         /// </summary>
-        public Structy Value = new Structy();
+        public Structy Value = new();
         #endregion
 
         #region Private.
@@ -84,7 +87,7 @@ namespace FishNet.Example.CustomSyncObject
         /// <summary>
         /// Changed data which will be sent next tick.
         /// </summary>
-        private readonly List<ChangeData> _changed = new List<ChangeData>();
+        private readonly List<ChangeData> _changed = new();
         /// <summary>
         /// True if values have changed since initialization.
         /// </summary>
@@ -92,45 +95,45 @@ namespace FishNet.Example.CustomSyncObject
         /// <summary>
         /// Last value after dirty call.
         /// </summary>
-        private Structy _lastDirtied = new Structy();
+        private Structy _lastDirtied = new();
         #endregion
 
-        protected override void Registered()
+        protected override void Initialized()
         {
-            base.Registered();
+            base.Initialized();
             _initialValue = Value;
         }
 
         /// <summary>
         /// Adds an operation and invokes locally.
         /// </summary>
-        /// <param name="operation"></param>
-        /// <param name="index"></param>
-        /// <param name="prev"></param>
-        /// <param name="next"></param>
+        /// <param name = "operation"></param>
+        /// <param name = "index"></param>
+        /// <param name = "prev"></param>
+        /// <param name = "next"></param>
         private void AddOperation(CustomOperation operation, Structy prev, Structy next)
         {
-            if (!base.IsRegistered)
+            if (!IsInitialized)
                 return;
 
-            if (base.NetworkManager != null && !base.NetworkBehaviour.IsServer)
+            if (NetworkManager != null && !NetworkBehaviour.IsServerStarted)
             {
                 NetworkManager.LogWarning($"Cannot complete operation as server when server is not active.");
                 return;
             }
 
             /* Set as changed even if cannot dirty.
-            * Dirty is only set when there are observers,
-            * but even if there are not observers
-            * values must be marked as changed so when
-            * there are observers, new values are sent. */
+             * Dirty is only set when there are observers,
+             * but even if there are not observers
+             * values must be marked as changed so when
+             * there are observers, new values are sent. */
             _valuesChanged = true;
-            base.Dirty();
+            Dirty();
 
-            //Data can currently only be set from server, so this is always asServer.
+            // Data can currently only be set from server, so this is always asServer.
             bool asServer = true;
-            //Add to changed.
-            ChangeData cd = new ChangeData(operation, next);
+            // Add to changed.
+            ChangeData cd = new(operation, next);
             _changed.Add(cd);
             OnChange?.Invoke(operation, prev, next, asServer);
         }
@@ -138,9 +141,9 @@ namespace FishNet.Example.CustomSyncObject
         /// <summary>
         /// Writes all changed values.
         /// </summary>
-        /// <param name="writer"></param>
-        ///<param name="resetSyncTick">True to set the next time data may sync.</param>
-        public override void WriteDelta(PooledWriter writer, bool resetSyncTick = true)
+        /// <param name = "writer"></param>
+        /// <param name = "resetSyncTick">True to set the next time data may sync.</param>
+        protected internal override void WriteDelta(PooledWriter writer, bool resetSyncTick = true)
         {
             base.WriteDelta(writer, resetSyncTick);
             writer.WriteInt32(_changed.Count);
@@ -148,9 +151,9 @@ namespace FishNet.Example.CustomSyncObject
             for (int i = 0; i < _changed.Count; i++)
             {
                 ChangeData change = _changed[i];
-                writer.WriteByte((byte)change.Operation);
+                writer.WriteUInt8Unpacked((byte)change.Operation);
 
-                //Clear does not need to write anymore data so it is not included in checks.
+                // Clear does not need to write anymore data so it is not included in checks.
                 if (change.Operation == CustomOperation.Age)
                 {
                     writer.WriteUInt16(change.Data.Age);
@@ -167,18 +170,18 @@ namespace FishNet.Example.CustomSyncObject
         /// <summary>
         /// Writes all values if not initial values.
         /// </summary>
-        /// <param name="writer"></param>
-        public override void WriteFull(PooledWriter writer)
+        /// <param name = "writer"></param>
+        protected internal override void WriteFull(PooledWriter writer)
         {
             if (!_valuesChanged)
                 return;
 
             base.WriteHeader(writer, false);
-            //Write one change.
+            // Write one change.
             writer.WriteInt32(1);
-            //Write if changed is from the server, so always use the server _value.           
-            writer.WriteByte((byte)CustomOperation.Full);
-            //Write value.
+            // Write if changed is from the server, so always use the server _value.           
+            writer.WriteUInt8Unpacked((byte)CustomOperation.Full);
+            // Write value.
             writer.Write(Value);
         }
 
@@ -187,37 +190,33 @@ namespace FishNet.Example.CustomSyncObject
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         [APIExclude]
-        public override void Read(PooledReader reader, bool asServer)
+        protected internal override void Read(PooledReader reader, bool asServer)
         {
-            /* When !asServer don't make changes if server is running.
-            * This is because changes would have already been made on
-            * the server side and doing so again would result in duplicates
-            * and potentially overwrite data not yet sent. */
-            bool asClientAndHost = (!asServer && base.NetworkManager.IsServer);
+            SetReadArguments(reader, asServer, out bool newChangeId, out bool _, out bool canModifyValues);
 
             int changes = reader.ReadInt32();
             for (int i = 0; i < changes; i++)
             {
-                CustomOperation operation = (CustomOperation)reader.ReadByte();
+                CustomOperation operation = (CustomOperation)reader.ReadUInt8Unpacked();
                 Structy prev = Value;
                 Structy next = prev;
 
-                //Full.
+                // Full.
                 if (operation == CustomOperation.Full)
                     next = reader.Read<Structy>();
-                //Name.
+                // Name.
                 else if (operation == CustomOperation.Name)
-                    next.Name = reader.ReadString();
-                //Age
+                    next.Name = reader.ReadStringAllocated();
+                // Age
                 else if (operation == CustomOperation.Age)
                     next.Age = reader.ReadUInt16();
 
-                OnChange?.Invoke(operation, prev, next, asServer);
-
-                if (!asClientAndHost)
+                if (canModifyValues)
                     Value = next;
-            }
 
+                if (newChangeId)
+                    OnChange?.Invoke(operation, prev, next, asServer);
+            }
         }
 
         /// <summary>
@@ -239,9 +238,9 @@ namespace FishNet.Example.CustomSyncObject
         /// <summary>
         /// Resets to initialized values.
         /// </summary>
-        public override void ResetState()
+        protected internal override void ResetState(bool asServer)
         {
-            base.ResetState();
+            base.ResetState(asServer);
             _changed.Clear();
             Value = _initialValue;
             _valuesChanged = false;

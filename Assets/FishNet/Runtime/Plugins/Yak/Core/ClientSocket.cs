@@ -1,4 +1,3 @@
-//PROSTART
 using FishNet.Transporting.Yak.Server;
 using System;
 using System.Collections.Generic;
@@ -18,9 +17,10 @@ namespace FishNet.Transporting.Yak.Client
         /// <summary>
         /// Incomimg data.
         /// </summary>
-        private Queue<LocalPacket> _incoming = new Queue<LocalPacket>();
+        private Queue<LocalPacket> _incoming = new();
         #endregion
 
+        // PROSTART
         /// <summary>
         /// Initializes this for use.
         /// </summary>
@@ -29,14 +29,16 @@ namespace FishNet.Transporting.Yak.Client
             base.Initialize(t, socket);
             _server = (ServerSocket)socket;
         }
+        // PROEND
 
         /// <summary>
         /// Starts the client connection.
         /// </summary>
         internal bool StartConnection()
         {
-            //Already starting/started, or stopping.
-            if (base.GetLocalConnectionState() != LocalConnectionState.Stopped)
+            // PROSTART
+            // Already starting/started, or stopping.
+            if (GetLocalConnectionState() != LocalConnectionState.Stopped)
                 return false;
 
             SetLocalConnectionState(LocalConnectionState.Starting, false);
@@ -48,10 +50,11 @@ namespace FishNet.Transporting.Yak.Client
             LocalConnectionState serverState = _server.GetLocalConnectionState();
             if (serverState == LocalConnectionState.Stopping || serverState == LocalConnectionState.Started)
                 OnLocalServerConnectionState(_server.GetLocalConnectionState());
-
+            //PROEND
             return true;
         }
 
+        //PROSTART
         /// <summary>
         /// Sets a new connection state.
         /// </summary>
@@ -61,41 +64,46 @@ namespace FishNet.Transporting.Yak.Client
             if (connectionState == LocalConnectionState.Started || connectionState == LocalConnectionState.Stopped)
                 _server.OnLocalClientConnectionState(connectionState);
         }
+        //PROEND
 
         /// <summary>
         /// Stops the local socket.
         /// </summary>
         internal bool StopConnection()
         {
-            if (base.GetLocalConnectionState() == LocalConnectionState.Stopped || base.GetLocalConnectionState() == LocalConnectionState.Stopping)
+            //PROSTART
+            if (GetLocalConnectionState() == LocalConnectionState.Stopped || GetLocalConnectionState() == LocalConnectionState.Stopping)
                 return false;
 
-            base.ClearQueue(ref _incoming);
+            ClearQueue(ref _incoming);
             //Immediately set stopped since no real connection exists.
             SetLocalConnectionState(LocalConnectionState.Stopping, false);
             SetLocalConnectionState(LocalConnectionState.Stopped, false);
-
+            //PROEND
             return true;
         }
 
+        //PROSTART
         /// <summary>
         /// Iterations data received.
         /// </summary>
         internal void IterateIncoming()
         {
-            if (base.GetLocalConnectionState() != LocalConnectionState.Started)
+            if (GetLocalConnectionState() != LocalConnectionState.Started)
                 return;
 
             while (_incoming.Count > 0)
             {
                 LocalPacket packet = _incoming.Dequeue();
-                ArraySegment<byte> segment = new ArraySegment<byte>(packet.Data, 0, packet.Length);
-                ClientReceivedDataArgs dataArgs = new ClientReceivedDataArgs(segment, (Channel)packet.Channel, base.Transport.Index);
-                base.Transport.HandleClientReceivedDataArgs(dataArgs);
+                ArraySegment<byte> segment = new(packet.Data, 0, packet.Length);
+                ClientReceivedDataArgs dataArgs = new(segment, (Channel)packet.Channel, Transport.Index);
+                Transport.HandleClientReceivedDataArgs(dataArgs);
                 packet.Dispose();
             }
         }
+        //PROEND
 
+        //PROSTART
         /// <summary>
         /// Called when the server sends the local client data.
         /// </summary>
@@ -103,30 +111,33 @@ namespace FishNet.Transporting.Yak.Client
         {
             _incoming.Enqueue(packet);
         }
+        //PROEND
 
+        //PROSTART
         /// <summary>
         /// Queues data to be sent to server.
         /// </summary>
         internal void SendToServer(byte channelId, ArraySegment<byte> segment)
         {
-            if (base.GetLocalConnectionState() != LocalConnectionState.Started)
+            if (GetLocalConnectionState() != LocalConnectionState.Started)
                 return;
             if (_server.GetLocalConnectionState() != LocalConnectionState.Started)
                 return;
 
-            LocalPacket packet = new LocalPacket(segment, channelId);
+            LocalPacket packet = new(segment, channelId);
             _server.ReceivedFromLocalClient(packet);
         }
+        //PROEND
 
         #region Local server.
+        //PROSTART
         /// <summary>
         /// Called when the local server starts or stops.
         /// </summary>
         internal void OnLocalServerConnectionState(LocalConnectionState state)
         {
             //Server started.
-            if (state == LocalConnectionState.Started &&
-                base.GetLocalConnectionState() == LocalConnectionState.Starting)
+            if (state == LocalConnectionState.Started && GetLocalConnectionState() == LocalConnectionState.Starting)
             {
                 SetLocalConnectionState(LocalConnectionState.Started, false);
             }
@@ -134,19 +145,15 @@ namespace FishNet.Transporting.Yak.Client
             else
             {
                 //If stopped or stopping then disconnect client if also not stopped or stopping.
-                if ((state == LocalConnectionState.Stopping || state == LocalConnectionState.Stopped) &&
-                    (base.GetLocalConnectionState() == LocalConnectionState.Started ||
-                    base.GetLocalConnectionState() == LocalConnectionState.Starting)
-                    )
+                if ((state == LocalConnectionState.Stopping || state == LocalConnectionState.Stopped) && (GetLocalConnectionState() == LocalConnectionState.Started || GetLocalConnectionState() == LocalConnectionState.Starting))
                 {
                     SetLocalConnectionState(LocalConnectionState.Stopping, false);
                     SetLocalConnectionState(LocalConnectionState.Stopped, false);
                 }
             }
         }
+
+        //PROEND
         #endregion
-
-
     }
 }
-//PROEND

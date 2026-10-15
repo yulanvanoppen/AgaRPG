@@ -1,4 +1,4 @@
-﻿using Cinemachine;
+﻿
 using FishNet;
 using FishNet.Object;
 using FishNet.Object.Prediction;
@@ -76,8 +76,8 @@ public class PlayerCombat : NetworkBehaviour
     public float rayOffset = 1f;
 
     // cinemachine
-    private CinemachineVirtualCamera _aimVirtualCamera;
-    private CinemachineVirtualCamera _meleeVirtualCamera;
+    private Unity.Cinemachine.CinemachineVirtualCamera _aimVirtualCamera;
+    private Unity.Cinemachine.CinemachineVirtualCamera _meleeVirtualCamera;
 
     // input
 #if ENABLE_INPUT_SYSTEM
@@ -212,10 +212,10 @@ public class PlayerCombat : NetworkBehaviour
     {
         if (_aimVirtualCamera != null) return;
 
-        _aimVirtualCamera = GameObject.FindGameObjectWithTag("PlayerAimCamera").GetComponent<CinemachineVirtualCamera>();
+        _aimVirtualCamera = GameObject.FindGameObjectWithTag("PlayerAimCamera").GetComponent<Unity.Cinemachine.CinemachineVirtualCamera>();
         if (base.IsOwner) _aimVirtualCamera.Follow = transform.Find("Graphical").transform.Find("PlayerCameraRoot").transform;
 
-        _meleeVirtualCamera = GameObject.FindGameObjectWithTag("PlayerMeleeCamera").GetComponent<CinemachineVirtualCamera>();
+        _meleeVirtualCamera = GameObject.FindGameObjectWithTag("PlayerMeleeCamera").GetComponent<Unity.Cinemachine.CinemachineVirtualCamera>();
         if (base.IsOwner) _meleeVirtualCamera.Follow = transform.Find("Graphical").transform.Find("PlayerCameraRoot").transform;
 
         _aimTarget.parent.SetParent(null, true);
@@ -293,9 +293,9 @@ public class PlayerCombat : NetworkBehaviour
     private float CameraDistance()
     {
         if (_aimVirtualCamera.m_Priority == 20)
-            return _aimVirtualCamera.GetCinemachineComponent<Cinemachine3rdPersonFollow>().CameraDistance;
+            return _aimVirtualCamera.GetCinemachineComponent<Unity.Cinemachine.Cinemachine3rdPersonFollow>().CameraDistance;
         else if (_meleeVirtualCamera.m_Priority == 20)
-            return _meleeVirtualCamera.GetCinemachineComponent<Cinemachine3rdPersonFollow>().CameraDistance;
+            return _meleeVirtualCamera.GetCinemachineComponent<Unity.Cinemachine.Cinemachine3rdPersonFollow>().CameraDistance;
         else
             return _cameraControl.GetCameraDistance();
     }

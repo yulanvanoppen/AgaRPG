@@ -1,24 +1,33 @@
 ﻿using FishNet.Object;
 using FishNet.Object.Synchronizing;
+using FishNet.Serializing;
 using UnityEngine;
 
 namespace FishNet.Example.ComponentStateSync
 {
+    public static class AMSSerializer
+    {
+        public static void WriteAMS(this Writer w, AMonoScript value) { }
+
+        public static AMonoScript ReadAMS(this Reader r)
+        {
+            return default;
+        }
+    }
 
     public class ComponentSyncStateBehaviour : NetworkBehaviour
     {
-        /// <summary>  
+        /// <summary>
         /// Using my custom SyncType for Structy.
         /// </summary>
-        [SyncObject]
-        private readonly ComponentStateSync<AMonoScript> _syncScript = new ComponentStateSync<AMonoScript>();
+        private readonly ComponentStateSync<AMonoScript> _syncScript = new();
 
         private void Awake()
         {
             AMonoScript ams = GetComponent<AMonoScript>();
-            //Initialize with the component of your choice.
+            // Initialize with the component of your choice.
             _syncScript.Initialize(ams);
-            //Optionally listen for changes.
+            // Optionally listen for changes.
             _syncScript.OnChange += _syncScript_OnChange;
         }
 
@@ -32,12 +41,9 @@ namespace FishNet.Example.ComponentStateSync
 
         private void Update()
         {
-            //Every so often flip the state of the component.
-            if (base.IsServer && Time.frameCount % 200 == 0)
+            // Every so often flip the state of the component.
+            if (IsServerStarted && Time.frameCount % 200 == 0)
                 _syncScript.Enabled = !_syncScript.Enabled;
         }
-
     }
-
-
 }
