@@ -2905,7 +2905,7 @@ MonoBehaviour:
   _initializeOrder: 0
   _preventDespawnOnDisconnect: 0
   _defaultDespawnType: 0
-  _initializedTimestamp: -8584092088445151927
+  _initializedTimestamp: -8584092019524460603
 --- !u!114 &-8250344300497497206
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -6623,7 +6623,7 @@ MonoBehaviour:
   _initializeOrder: 0
   _preventDespawnOnDisconnect: 0
   _defaultDespawnType: 0
-  _initializedTimestamp: -8584092088445151927
+  _initializedTimestamp: -8584092019524460603
 --- !u!114 &3628962232320300738
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -7018,7 +7018,7 @@ MonoBehaviour:
   _initializeOrder: 0
   _preventDespawnOnDisconnect: 0
   _defaultDespawnType: 0
-  _initializedTimestamp: -8584092088445151927
+  _initializedTimestamp: -8584092019524460603
 --- !u!114 &2314915396237838405
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -36,7 +36,12 @@ public class CloudSaveManager : MonoBehaviour
     protected virtual void Awake()
     {
         GameObject[] objs = GameObject.FindGameObjectsWithTag("CloudSaveManager");
-        if (objs.Length > 1) Destroy(this.gameObject);
+        if (objs.Length > 1)
+        {
+            gameObject.SetActive(false);
+            Destroy(gameObject);
+            return;
+        }
 
         DontDestroyOnLoad(this.gameObject);
         playerColor = Color.white;

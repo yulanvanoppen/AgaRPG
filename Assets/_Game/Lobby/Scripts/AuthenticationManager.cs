@@ -25,9 +25,6 @@ public class AuthenticationManager : MonoBehaviour
     private Lobby _connectedLobby;
     private UnityTransport _transport;
     private const string JoinCodeKey = "j";
-
-    private Lobby _currentLobby = null;
-    private static CancellationTokenSource _heartbeatSource;
     private const int HeartbeatInterval = 15;
 
     [SerializeField] private RandomAudioPlaylistLoop _sfxManager;
@@ -39,18 +36,26 @@ public class AuthenticationManager : MonoBehaviour
         _transport = FindAnyObjectByType<UnityTransport>();
 
         GameObject[] objs = GameObject.FindGameObjectsWithTag("AuthenticationManager");
-        if (objs.Length > 1) Destroy(this.gameObject); 
+        if (objs.Length > 1)
+        {
+            // A persistent copy already exists. Deactivate first so Start() never runs on this
+            // duplicate (Destroy only takes effect at the end of the frame).
+            gameObject.SetActive(false);
+            Destroy(gameObject);
+            return;
+        }
 
         DontDestroyOnLoad(this.gameObject);
     }
 
     private async void Start()
     {
-        if (Application.isBatchMode) Play();
         Application.logMessageReceived += HandleLog;
         await Authentication.StartUp();
 
-        LoginAnonymously();
+        // Headless server: skip the lobby UI and go straight to hosting.
+        if (Application.isBatchMode) Play();
+        else LoginAnonymously();
     }
 
     public async void Play()
@@ -62,7 +67,6 @@ public class AuthenticationManager : MonoBehaviour
         Debug.Log(playerId);
 
         _connectedLobby = await QuickJoinLobby() ?? await CreateLobby();
-        Heartbeat();
 
         if (_connectedLobby != null && InstanceFinder.NetworkManager.IsServerStarted)
         {
@@ -74,17 +78,6 @@ public class AuthenticationManager : MonoBehaviour
             //Debug.Log("Scene Loaded");
         }
     }
-
-    private async void Heartbeat()
-    {
-        _heartbeatSource = new CancellationTokenSource();
-        while (!_heartbeatSource.IsCancellationRequested && _currentLobby != null)
-        {
-            await Lobbies.Instance.SendHeartbeatPingAsync(_currentLobby.Id);
-            await Task.Delay(HeartbeatInterval * 1000);
-        }
-    }
-
 
     public async void LoginAnonymously()
     {
@@ -165,7 +158,7 @@ public class AuthenticationManager : MonoBehaviour
             var lobby = await Lobbies.Instance.CreateLobbyAsync("Useless Lobby Name", maxPlayers, options);
 
             // Send a heartbeat every 15 seconds to keep the room alive
-            StartCoroutine(HeartbeatLobbyCoroutine(lobby.Id, 15));
+            StartCoroutine(HeartbeatLobbyCoroutine(lobby.Id, HeartbeatInterval));
 
             // Set the game room to use the relay allocation
             _transport.SetHostRelayData(a.RelayServer.IpV4, (ushort)a.RelayServer.Port, a.AllocationIdBytes, a.Key, a.ConnectionData);
@@ -195,7 +188,10 @@ public class AuthenticationManager : MonoBehaviour
         var delay = new WaitForSecondsRealtime(waitTimeSeconds);
         while (true)
         {
-            Lobbies.Instance.SendHeartbeatPingAsync(lobbyId);
+            Lobbies.Instance.SendHeartbeatPingAsync(lobbyId).ContinueWith(t =>
+            {
+                if (t.IsFaulted) Debug.LogWarning($"Lobby heartbeat failed: {t.Exception?.GetBaseException().Message}");
+            });
             yield return delay;
         }
     }

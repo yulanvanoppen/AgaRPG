@@ -1068,7 +1068,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e8cac635f24954048aad3a6ff9110beb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _componentIndexCache: 4
+  _componentIndexCache: 3
   _addedNetworkObject: {fileID: 2928216967508590571}
   _networkObjectCache: {fileID: 2928216967508590571}
   IgnoredParameters: []
@@ -2825,6 +2825,7 @@ GameObject:
   m_Component:
   - component: {fileID: 2449650472693743026}
   - component: {fileID: 5288824838542184982}
+  - component: {fileID: 2009314906206026032}
   m_Layer: 3
   m_Name: PlayerCameraRoot
   m_TagString: CinemachineTarget
@@ -2884,16 +2885,17 @@ MonoBehaviour:
   SerializedTransformProperties:
     Position: {x: 0, y: 1.375, z: 0}
     Rotation: {x: 0, y: 0, z: 0, w: 1}
-    Scale: {x: 0, y: 0, z: 0}
-    IsValid: 0
+    Scale: {x: 1, y: 1, z: 1}
+    IsValid: 1
   <IsNested>k__BackingField: 1
   WasActiveDuringEdit: 1
   WasActiveDuringEdit_Set1: 1
   <ComponentIndex>k__BackingField: 1
   <PredictedSpawn>k__BackingField: {fileID: 0}
   <PredictedOwner>k__BackingField: {fileID: 0}
-  NetworkBehaviours: []
-  InitializedParentNetworkBehaviour: {fileID: 0}
+  NetworkBehaviours:
+  - {fileID: 2009314906206026032}
+  InitializedParentNetworkBehaviour: {fileID: 3628962232320300738}
   InitializedNestedNetworkObjects: []
   RuntimeParentNetworkBehaviour: {fileID: 0}
   RuntimeChildNetworkBehaviours: []
@@ -2903,7 +2905,22 @@ MonoBehaviour:
   _initializeOrder: 0
   _preventDespawnOnDisconnect: 0
   _defaultDespawnType: 0
-  _initializedTimestamp: 0
+  _initializedTimestamp: -8584092019524460603
+--- !u!114 &2009314906206026032
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3552571618051379441}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8a6a39c46bf52104ba8efe3100bce3f7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: FishNet.Runtime::FishNet.Object.EmptyNetworkBehaviour
+  _componentIndexCache: 0
+  _addedNetworkObject: {fileID: 5288824838542184982}
+  _networkObjectCache: {fileID: 5288824838542184982}
 --- !u!1 &3720123270869690150
 GameObject:
   m_ObjectHideFlags: 0
@@ -4735,7 +4752,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3f994ba835a33a74e91ee34d72559744, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _componentIndexCache: 6
+  _componentIndexCache: 5
   _addedNetworkObject: {fileID: 2928216967508590571}
   _networkObjectCache: {fileID: 2928216967508590571}
   Tag: {fileID: 7057780321346871710}
@@ -5980,7 +5997,6 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 4714755990491403060}
-  - component: {fileID: 3757137946622385608}
   - component: {fileID: 5667794834062131968}
   - component: {fileID: 6927624746018511363}
   - component: {fileID: 1580691854104262179}
@@ -6013,24 +6029,6 @@ Transform:
   - {fileID: 3075890898255077676}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &3757137946622385608
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 7054906956525379834}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 53a6d84aa5d214e48a7308646e5d20da, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  _componentIndexCache: 0
-  _addedNetworkObject: {fileID: 2928216967508590571}
-  _networkObjectCache: {fileID: 2928216967508590571}
-  _tickCallbacks: 6
-  _jumpForce: 15
-  _moveRate: 4
 --- !u!95 &5667794834062131968
 Animator:
   serializedVersion: 7
@@ -6246,24 +6244,32 @@ MonoBehaviour:
   _spectatorInterpolation: 1
   _enableTeleport: 1
   _teleportThreshold: 1
-  <PrefabId>k__BackingField: 7
+  <PrefabId>k__BackingField: 5
   <SpawnableCollectionId>k__BackingField: 0
   <AssetPathHash>k__BackingField: 13559852110285204745
   SceneId: 0
   SerializedTransformProperties:
-    Position: {x: 0, y: 0, z: 0}
+    Position: {x: 0, y: 0.46327806, z: 0}
     Rotation: {x: 0, y: 0, z: 0, w: 1}
-    Scale: {x: 0, y: 0, z: 0}
-    IsValid: 0
+    Scale: {x: 1, y: 1, z: 1}
+    IsValid: 1
   <IsNested>k__BackingField: 0
   WasActiveDuringEdit: 0
   WasActiveDuringEdit_Set1: 1
   <ComponentIndex>k__BackingField: 0
   <PredictedSpawn>k__BackingField: {fileID: 0}
   <PredictedOwner>k__BackingField: {fileID: 0}
-  NetworkBehaviours: []
+  NetworkBehaviours:
+  - {fileID: 3628962232320300738}
+  - {fileID: 7547828048933195461}
+  - {fileID: 2362425428335226786}
+  - {fileID: 5522203616302991141}
+  - {fileID: 3758939933422216726}
+  - {fileID: 3378311075987348775}
   InitializedParentNetworkBehaviour: {fileID: 0}
-  InitializedNestedNetworkObjects: []
+  InitializedNestedNetworkObjects:
+  - {fileID: 5288824838542184982}
+  - {fileID: 5260029545815026136}
   RuntimeParentNetworkBehaviour: {fileID: 0}
   RuntimeChildNetworkBehaviours: []
   _isNetworked: 1
@@ -6272,7 +6278,7 @@ MonoBehaviour:
   _initializeOrder: 0
   _preventDespawnOnDisconnect: 0
   _defaultDespawnType: 0
-  _initializedTimestamp: 0
+  _initializedTimestamp: -8584092019524460603
 --- !u!114 &3628962232320300738
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -6285,7 +6291,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e8cac635f24954048aad3a6ff9110beb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _componentIndexCache: 1
+  _componentIndexCache: 0
   _addedNetworkObject: {fileID: 2928216967508590571}
   _networkObjectCache: {fileID: 2928216967508590571}
   IgnoredParameters: []
@@ -6307,7 +6313,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a2836e36774ca1c4bbbee976e17b649c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _componentIndexCache: 2
+  _componentIndexCache: 1
   _addedNetworkObject: {fileID: 2928216967508590571}
   _networkObjectCache: {fileID: 2928216967508590571}
   _componentConfiguration: 1
@@ -6571,6 +6577,7 @@ GameObject:
   - component: {fileID: 5185239965566989468}
   - component: {fileID: 5260029545815026136}
   - component: {fileID: 2314915396237838405}
+  - component: {fileID: -4516765090738699323}
   m_Layer: 3
   m_Name: AimContainer
   m_TagString: Untagged
@@ -6669,18 +6676,19 @@ MonoBehaviour:
   <AssetPathHash>k__BackingField: 0
   SceneId: 0
   SerializedTransformProperties:
-    Position: {x: 0, y: 0.19, z: 1.052}
-    Rotation: {x: 0, y: 0, z: 0, w: 1}
-    Scale: {x: 0, y: 0, z: 0}
-    IsValid: 0
+    Position: {x: 0, y: 0.18999997, z: 1.052}
+    Rotation: {x: -0, y: -0, z: -0, w: 1}
+    Scale: {x: 1, y: 1, z: 1}
+    IsValid: 1
   <IsNested>k__BackingField: 1
   WasActiveDuringEdit: 1
   WasActiveDuringEdit_Set1: 1
   <ComponentIndex>k__BackingField: 2
   <PredictedSpawn>k__BackingField: {fileID: 0}
   <PredictedOwner>k__BackingField: {fileID: 0}
-  NetworkBehaviours: []
-  InitializedParentNetworkBehaviour: {fileID: 0}
+  NetworkBehaviours:
+  - {fileID: -4516765090738699323}
+  InitializedParentNetworkBehaviour: {fileID: 3628962232320300738}
   InitializedNestedNetworkObjects: []
   RuntimeParentNetworkBehaviour: {fileID: 0}
   RuntimeChildNetworkBehaviours: []
@@ -6690,7 +6698,7 @@ MonoBehaviour:
   _initializeOrder: 0
   _preventDespawnOnDisconnect: 0
   _defaultDespawnType: 0
-  _initializedTimestamp: 0
+  _initializedTimestamp: -8584092019524460603
 --- !u!114 &2314915396237838405
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -6707,6 +6715,21 @@ MonoBehaviour:
   _updateHostVisibility: 1
   _observerConditions:
   - {fileID: 0}
+--- !u!114 &-4516765090738699323
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7229718018394085625}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8a6a39c46bf52104ba8efe3100bce3f7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: FishNet.Runtime::FishNet.Object.EmptyNetworkBehaviour
+  _componentIndexCache: 0
+  _addedNetworkObject: {fileID: 5260029545815026136}
+  _networkObjectCache: {fileID: 5260029545815026136}
 --- !u!1 &7274340507861436322
 GameObject:
   m_ObjectHideFlags: 0
@@ -7001,7 +7024,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e8cac635f24954048aad3a6ff9110beb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _componentIndexCache: 3
+  _componentIndexCache: 2
   _addedNetworkObject: {fileID: 2928216967508590571}
   _networkObjectCache: {fileID: 2928216967508590571}
   IgnoredParameters: []
@@ -8365,7 +8388,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 926dbbf391cfbec4a9bb1f1cda931454, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _componentIndexCache: 5
+  _componentIndexCache: 4
   _addedNetworkObject: {fileID: 2928216967508590571}
   _networkObjectCache: {fileID: 2928216967508590571}
   _slider: {fileID: 1323957279909881503}

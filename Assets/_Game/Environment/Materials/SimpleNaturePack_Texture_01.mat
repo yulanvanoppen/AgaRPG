@@ -27,8 +27,8 @@ Material:
   m_ValidKeywords:
   - EFFECT_BUMP
   - EFFECT_HUE_VARIATION
+  m_InvalidKeywords:
   - _WINDQUALITY_FASTEST
-  m_InvalidKeywords: []
   m_LightmapFlags: 4
   m_EnableInstancingVariants: 0
   m_DoubleSidedGI: 0
@@ -471,6 +471,7 @@ Material:
     - _UvOffset: {r: 0, g: 0, b: 0, a: 0}
     - _UvTiling: {r: 1, g: 1, b: 0, a: 0}
   m_BuildTextureStacks: []
+  m_AllowLocking: 1
 --- !u!114 &3361514962567926171
 MonoBehaviour:
   m_ObjectHideFlags: 11

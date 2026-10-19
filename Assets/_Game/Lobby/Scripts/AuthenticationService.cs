@@ -20,6 +20,18 @@ namespace Unity.Services.Authentication.PlayerAccounts.Samples
         public static bool initPlayerAccountService;
 
 
+        // "Enter Play Mode Options" has Domain Reload disabled in this project, so static
+        // fields keep their values from the previous Play session. Reset them on every entry.
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetStatics()
+        {
+            playerId = "";
+            playerTag = "";
+            signedIn = false;
+            initPlayerAccountService = false;
+        }
+
+
         public static async Task InitializeUnityServices()
         {
             if (UnityServices.State == ServicesInitializationState.Uninitialized)
@@ -40,8 +52,19 @@ namespace Unity.Services.Authentication.PlayerAccounts.Samples
 
             if (!initPlayerAccountService)
             {
-                PlayerAccountService.Instance.SignedIn += SignInWithUnity;
-                initPlayerAccountService = true;
+                // PlayerAccountService only exists when Player Accounts is configured in
+                // Project Settings > Services > Player Accounts. If it isn't, don't let that
+                // block anonymous sign-in: log a warning and carry on without Unity sign-in.
+                try
+                {
+                    PlayerAccountService.Instance.SignedIn -= SignInWithUnity;
+                    PlayerAccountService.Instance.SignedIn += SignInWithUnity;
+                    initPlayerAccountService = true;
+                }
+                catch (ServicesInitializationException e)
+                {
+                    Debug.LogWarning($"Player Accounts not available, Unity sign-in disabled: {e.Message}");
+                }
             }
         }
 
@@ -64,28 +87,24 @@ namespace Unity.Services.Authentication.PlayerAccounts.Samples
 
         private static void SetupEvents()
         {
-            AuthenticationService.Instance.SignedIn += () => {
-                // Shows how to get a playerID
-                Debug.Log($"PlayerID: {AuthenticationService.Instance.PlayerId}");
-
-                // Shows how to get an access token
-                Debug.Log($"Access Token: {AuthenticationService.Instance.AccessToken}");
-
-            };
-
-            AuthenticationService.Instance.SignInFailed += (err) => {
-                Debug.LogError(err);
-            };
-
-            AuthenticationService.Instance.SignedOut += () => {
-                Debug.Log("Player signed out.");
-            };
-
-            AuthenticationService.Instance.Expired += () =>
-            {
-                Debug.Log("Player session could not be refreshed and expired.");
-            };
+            // Unsubscribe first so handlers are never added twice (StartUp can run more than
+            // once per editor session when Domain Reload is disabled).
+            var auth = AuthenticationService.Instance;
+            auth.SignedIn -= OnSignedIn;         auth.SignedIn += OnSignedIn;
+            auth.SignInFailed -= OnSignInFailed; auth.SignInFailed += OnSignInFailed;
+            auth.SignedOut -= OnSignedOut;       auth.SignedOut += OnSignedOut;
+            auth.Expired -= OnExpired;           auth.Expired += OnExpired;
         }
+
+        private static void OnSignedIn()
+        {
+            Debug.Log($"PlayerID: {AuthenticationService.Instance.PlayerId}");
+            Debug.Log($"Access Token: {AuthenticationService.Instance.AccessToken}");
+        }
+
+        private static void OnSignInFailed(RequestFailedException err) => Debug.LogError(err);
+        private static void OnSignedOut() => Debug.Log("Player signed out.");
+        private static void OnExpired() => Debug.Log("Player session could not be refreshed and expired.");
 
 
         public static async Task LoginAnonymously()
