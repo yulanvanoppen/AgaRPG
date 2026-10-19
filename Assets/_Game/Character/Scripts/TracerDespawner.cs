@@ -22,7 +22,7 @@ public class TracerDespawner : NetworkBehaviour
     {
         yield return new WaitForSeconds(time);
         if (base.IsOwner) RpcDespawn();
-        if (base.IsServer) base.Despawn();
+        if (base.IsServerInitialized) base.Despawn();
     }
 
     [ServerRpc]

@@ -92,7 +92,7 @@ public class PlayerMovement : NetworkBehaviour
 
 
     //MoveData for replication
-    private MoveData _lastMoveData = default;
+    //private MoveData _lastMoveData = default;
 
     public struct MoveData : IReplicateData
     {

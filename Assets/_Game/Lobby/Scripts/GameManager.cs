@@ -17,14 +17,14 @@ public class GameManager : NetworkBehaviour {
 
     public void OnApplicationQuit()
     {
-        if (base.IsClient) InstanceFinder.ClientManager.StopConnection();
-        if (base.IsServer) InstanceFinder.ServerManager.StopConnection(true);
+        if (base.IsClientInitialized) InstanceFinder.ClientManager.StopConnection();
+        if (base.IsServerInitialized) InstanceFinder.ServerManager.StopConnection(true);
     }
 
     public override void OnStopNetwork()
     {
         base.OnStopNetwork();
-        if (InstanceFinder.NetworkManager != null && base.IsClient)
+        if (InstanceFinder.NetworkManager != null && base.IsClientInitialized)
             InstanceFinder.ClientManager.StopConnection();
     }
 }

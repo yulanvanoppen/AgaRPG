@@ -102,7 +102,7 @@ public class RaycastWeapon : AbstractWeapon
             tracer.transform.position = raycastHit.point;
         }
 
-        if (base.IsServer && accumulatedTime >= 0f)
+        if (base.IsServerInitialized && accumulatedTime >= 0f)
         {
             Transform hitTransform = raycastHit.transform;
 
@@ -132,7 +132,7 @@ public class RaycastWeapon : AbstractWeapon
     private void ShotImpact(Vector3 position, Vector3 normal)
     {
         if (base.IsOwner) HitEffect(position, normal);
-        if (base.IsServer) ObserversRpcShotImpact(position, normal);
+        if (base.IsServerInitialized) ObserversRpcShotImpact(position, normal);
     }
 
     [ObserversRpc(ExcludeOwner = true)]
@@ -142,7 +142,7 @@ public class RaycastWeapon : AbstractWeapon
     private void ShotAudio ()
     {
         if (base.IsOwner) AudioSource.PlayClipAtPoint(shootAudioClip, raycastOrigin.position, .3f);
-        if (base.IsServer) ObserversRpcShotAudio();
+        if (base.IsServerInitialized) ObserversRpcShotAudio();
     }
 
     [ObserversRpc(ExcludeOwner = true)]
@@ -152,7 +152,7 @@ public class RaycastWeapon : AbstractWeapon
     private void ReloadAudio()
     {
         if (base.IsOwner) AudioSource.PlayClipAtPoint(reloadAudioClip, raycastOrigin.position, .6f);
-        if (base.IsServer) ObserversRpcReloadAudio();
+        if (base.IsServerInitialized) ObserversRpcReloadAudio();
     }
 
     [ObserversRpc(ExcludeOwner = true)]

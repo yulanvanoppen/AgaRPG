@@ -91,7 +91,7 @@ public class MeleeWeapon : AbstractWeapon
     private void PlayAudio(AudioClipIdx clipIdx, float volume = .6f)
     {
         if (base.IsOwner) AudioSource.PlayClipAtPoint(IdxToClip(clipIdx), transform.position, volume);
-        if (base.IsServer) ObserversRpcPlayAudio(clipIdx, volume);
+        if (base.IsServerInitialized) ObserversRpcPlayAudio(clipIdx, volume);
     }
 
     [ObserversRpc(ExcludeOwner = true)]

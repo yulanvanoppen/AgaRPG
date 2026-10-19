@@ -111,7 +111,7 @@ public class PlayerCombat : NetworkBehaviour
     {
         if (strafe == value) return;
         strafe = value;
-        if (base.IsServer) _strafe.Value = value;
+        if (base.IsServerInitialized) _strafe.Value = value;
         else if (base.IsOwner) ServerRpcSetStrafe(value);
     }
 
@@ -469,14 +469,14 @@ public class PlayerCombat : NetworkBehaviour
         // state transitioning
         if (cd.Aim && _state.Is(MeleeState.Drawn, MeleeState.Readied))
         {
-            if (base.IsServer) _weapons.meleeWeapon.canBlock = true;
+            if (base.IsServerInitialized) _weapons.meleeWeapon.canBlock = true;
             _state.Set(MeleeState.Blocking);
             firstReady = true;
         }
 
         if (!cd.Aim && _state.Is(MeleeState.Blocking))
         {
-            if (base.IsServer) _weapons.meleeWeapon.canBlock = false;
+            if (base.IsServerInitialized) _weapons.meleeWeapon.canBlock = false;
             _state.Set(MeleeState.Drawn);
             firstReady = true;
         }
@@ -498,7 +498,7 @@ public class PlayerCombat : NetworkBehaviour
             _weapons.meleeWeapon.SetCooldown();
             strikeCooldown = .5f;
             _weapons.meleeWeapon.canHit = true;
-            if (base.IsServer) _weapons.meleeWeapon.canDamage = true;
+            if (base.IsServerInitialized) _weapons.meleeWeapon.canDamage = true;
 
             _weapons.meleeWeapon.SwingAudioEffect();
             _animation.SetStrike(strikeDir);
@@ -542,7 +542,7 @@ public class PlayerCombat : NetworkBehaviour
                 else _animation.SetStrikeSpeed(1f);
                 //if (alwaysStrike || strikeDir == Vector2.zero) break;
 
-                //if (base.IsServer) _weapons.meleeWeapon.canHit = true;
+                //if (base.IsServerInitialized) _weapons.meleeWeapon.canHit = true;
                 //_weapons.meleeWeapon.SwingAudioEffect();
                 //_animation.SetStrike(strikeDir);
                 //strikeDir = Vector2.zero;

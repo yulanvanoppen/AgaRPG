@@ -1176,6 +1176,14 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 0}
     m_Modifications:
+    - target: {fileID: 3414662637742749596, guid: 0b650fca685f2eb41a86538aa883e4c1, type: 3}
+      propertyPath: m_AnchoredPosition.x
+      value: 78.1001
+      objectReference: {fileID: 0}
+    - target: {fileID: 3414662637742749596, guid: 0b650fca685f2eb41a86538aa883e4c1, type: 3}
+      propertyPath: m_AnchoredPosition.y
+      value: -121.399994
+      objectReference: {fileID: 0}
     - target: {fileID: 7443408887813606049, guid: 0b650fca685f2eb41a86538aa883e4c1, type: 3}
       propertyPath: m_LocalPosition.x
       value: -0.0847199
@@ -1643,13 +1651,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e08bb003fce297d4086cf8cba5aa459a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _queuedInputs: 1
+  _reduceReconcilesWithFramerate: 1
+  _minimumClientReconcileFramerate: 50
+  _createLocalStates: 1
+  _stateInterpolation: 3
+  _stateOrder: 1
   _dropExcessiveReplicates: 1
   _maximumServerReplicates: 15
-  _maximumConsumeCount: 4
-  _redundancyCount: 3
-  _allowPredictedSpawning: 1
-  _reservedObjectIds: 15
 --- !u!114 &623019858
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1681,13 +1689,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6f48f002b825cbd45a19bd96d90f9edb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _unreliableMTU: 1023
+  _stopSocketsOnThread: 0
+  _dontRoute: 0
+  _reuseAddress: 0
   _ipv4BindAddress: 
+  _enableIpv6: 1
   _ipv6BindAddress: 
   _port: 7771
   _maximumClients: 4095
   _clientAddress: localhost
-  _timeout: 15
 --- !u!114 &623019864
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1718,6 +1728,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   Transport: {fileID: 623019863}
+  _maximumClientPacketSize: 20480
   _intermediateLayer: {fileID: 0}
   _latencySimulator:
     _enabled: 1
@@ -4054,6 +4065,10 @@ PrefabInstance:
       value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 6991822652704389966, guid: d803afe9a6bd84b428dd374b9bcb0439, type: 3}
+      propertyPath: SceneId
+      value: 3689797756
+      objectReference: {fileID: 0}
+    - target: {fileID: 6991822652704389966, guid: d803afe9a6bd84b428dd374b9bcb0439, type: 3}
       propertyPath: <SceneId>k__BackingField
       value: 9348861696173802137
       objectReference: {fileID: 0}
@@ -5161,6 +5176,10 @@ PrefabInstance:
       value: 10
       objectReference: {fileID: 0}
     - target: {fileID: 2928216967508590571, guid: 7da571b1df5fb8a40a7c3ee066f7c137, type: 3}
+      propertyPath: SceneId
+      value: 3924655482
+      objectReference: {fileID: 0}
+    - target: {fileID: 2928216967508590571, guid: 7da571b1df5fb8a40a7c3ee066f7c137, type: 3}
       propertyPath: _scenePathHash
       value: 2543701232
       objectReference: {fileID: 0}
@@ -5241,12 +5260,20 @@ PrefabInstance:
       value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 5260029545815026136, guid: 7da571b1df5fb8a40a7c3ee066f7c137, type: 3}
+      propertyPath: SceneId
+      value: 3421469823
+      objectReference: {fileID: 0}
+    - target: {fileID: 5260029545815026136, guid: 7da571b1df5fb8a40a7c3ee066f7c137, type: 3}
       propertyPath: _scenePathHash
       value: 2543701232
       objectReference: {fileID: 0}
     - target: {fileID: 5260029545815026136, guid: 7da571b1df5fb8a40a7c3ee066f7c137, type: 3}
       propertyPath: <SceneId>k__BackingField
       value: 10925113605667744802
+      objectReference: {fileID: 0}
+    - target: {fileID: 5288824838542184982, guid: 7da571b1df5fb8a40a7c3ee066f7c137, type: 3}
+      propertyPath: SceneId
+      value: 2948562814
       objectReference: {fileID: 0}
     - target: {fileID: 5288824838542184982, guid: 7da571b1df5fb8a40a7c3ee066f7c137, type: 3}
       propertyPath: _scenePathHash

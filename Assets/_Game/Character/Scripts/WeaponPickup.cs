@@ -38,7 +38,7 @@ public class WeaponPickup : MonoBehaviour
         if (!active) return;
 
         PlayerWeapons player = other.gameObject.GetComponent<PlayerWeapons>();
-        if (player != null && player.IsClient && player.IsOwner && active)
+        if (player != null && player.IsClientInitialized && player.IsOwner && active)
         {
             player.RpcUnequip();
             if (_weaponPrefab != null)

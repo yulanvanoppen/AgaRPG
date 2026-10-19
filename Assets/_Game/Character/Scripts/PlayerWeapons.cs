@@ -101,7 +101,7 @@ public class PlayerWeapons : NetworkBehaviour
     public void RpcEquip(AbstractWeapon newWeapon)
     {
         Equip(newWeapon);
-        if (base.IsServer) ObsRpcEquip(newWeapon);
+        if (base.IsServerInitialized) ObsRpcEquip(newWeapon);
     }
 
     [ObserversRpc(ExcludeOwner = true, BufferLast = true)]
@@ -140,7 +140,7 @@ public class PlayerWeapons : NetworkBehaviour
     public void RpcUnequip()
     {
         Unequip();
-        if (base.IsServer) ObsRpcUnequip();
+        if (base.IsServerInitialized) ObsRpcUnequip();
     }
 
     [ObserversRpc(ExcludeOwner = true, BufferLast = true)]

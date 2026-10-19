@@ -8,7 +8,7 @@ using FishNet.Transporting.UTP;
 using Unity.Services.CloudSave;
 using Unity.Services.Lobbies;
 using Unity.Services.Lobbies.Models;
-using Unity.Services.PlayerAccounts.Samples;
+using Unity.Services.Authentication.PlayerAccounts.Samples;
 using Unity.Services.Relay;
 using Unity.Services.Relay.Models;
 using UnityEngine;
@@ -36,7 +36,7 @@ public class AuthenticationManager : MonoBehaviour
 
     protected virtual void Awake()
     {
-        _transport = FindObjectOfType<UnityTransport>();
+        _transport = FindAnyObjectByType<UnityTransport>();
 
         GameObject[] objs = GameObject.FindGameObjectsWithTag("AuthenticationManager");
         if (objs.Length > 1) Destroy(this.gameObject); 
@@ -64,7 +64,7 @@ public class AuthenticationManager : MonoBehaviour
         _connectedLobby = await QuickJoinLobby() ?? await CreateLobby();
         Heartbeat();
 
-        if (_connectedLobby != null && InstanceFinder.NetworkManager.IsServer)
+        if (_connectedLobby != null && InstanceFinder.NetworkManager.IsServerStarted)
         {
             _sfxManager.StartGame();
 

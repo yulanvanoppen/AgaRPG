@@ -160,7 +160,7 @@ public class PlayerAttributes : NetworkBehaviour
         transform.localScale = Vector3.one * value;     // apply locally right away
         if (_size.Value == value) return;
 
-        if (base.IsServer) _size.Value = value;
+        if (base.IsServerInitialized) _size.Value = value;
         else ServerRpcSetSize(value);
     }
 
@@ -210,7 +210,7 @@ public class PlayerAttributes : NetworkBehaviour
 
     public void TakeDamage(float damageAmount, NetworkConnection attackerConnection = null)
     {
-        if (!base.IsServer || spawnProtection) return;
+        if (!base.IsServerInitialized || spawnProtection) return;
 
         UpdateHealth(health - damageAmount);
         if (health < 0.001f)
@@ -228,7 +228,7 @@ public class PlayerAttributes : NetworkBehaviour
 
     private void Die()
     {
-        if (!base.IsServer) return;
+        if (!base.IsServerInitialized) return;
 
         dead = true;
         UpdateHealth(0f);

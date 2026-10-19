@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Threading.Tasks;
 using FishNet;
 using FishNet.Managing.Scened;
@@ -8,7 +9,7 @@ using FishNet.Transporting.UTP;
 using Unity.Services.CloudSave;
 using Unity.Services.Lobbies;
 using Unity.Services.Lobbies.Models;
-using Unity.Services.PlayerAccounts.Samples;
+using Unity.Services.Authentication.PlayerAccounts.Samples;
 using Unity.Services.Relay;
 using Unity.Services.Relay.Models;
 using UnityEngine;
@@ -35,13 +36,13 @@ public class CloudSaveManager : MonoBehaviour
     protected virtual void Awake()
     {
         GameObject[] objs = GameObject.FindGameObjectsWithTag("CloudSaveManager");
-        if (objs.Length > 1) Destroy(this.gameObject); 
+        if (objs.Length > 1) Destroy(this.gameObject);
 
         DontDestroyOnLoad(this.gameObject);
         playerColor = Color.white;
     }
 
-    
+
     public async void EditTag()
     {
         await Authentication.SetPlayerTag(tagField.text);
@@ -62,10 +63,12 @@ public class CloudSaveManager : MonoBehaviour
     {
         try
         {
-            var cloudSaveData = await CloudSaveService.Instance.Data.LoadAllAsync();
+            // values come back as Item objects; read them as strings with GetAsString()
+            var cloudSaveData = await CloudSaveService.Instance.Data.Player.LoadAllAsync();
 
             if (cloudSaveData.ContainsKey(_sizeStateKey))
-                playerSize = float.Parse(cloudSaveData[_sizeStateKey]);
+                playerSize = float.Parse(cloudSaveData[_sizeStateKey].Value.GetAsString(),
+                                         CultureInfo.InvariantCulture);
             else
             {
                 playerSize = 1f;
@@ -73,7 +76,8 @@ public class CloudSaveManager : MonoBehaviour
             }
 
             if (cloudSaveData.ContainsKey(_colorStateKey))
-                ColorUtility.TryParseHtmlString('#' + cloudSaveData[_colorStateKey], out playerColor);
+                ColorUtility.TryParseHtmlString('#' + cloudSaveData[_colorStateKey].Value.GetAsString(),
+                                                out playerColor);
             else
             {
                 playerColor = Color.white;
@@ -93,9 +97,9 @@ public class CloudSaveManager : MonoBehaviour
         playerSize = value;
         try
         {
-            var dataToSave = new Dictionary<string, object>{{ _sizeStateKey, playerSize }};
+            var dataToSave = new Dictionary<string, object> { { _sizeStateKey, playerSize } };
 
-            await CloudSaveService.Instance.Data.ForceSaveAsync(dataToSave);
+            await CloudSaveService.Instance.Data.Player.SaveAsync(dataToSave);
         }
         catch (Exception e)
         {
@@ -113,7 +117,7 @@ public class CloudSaveManager : MonoBehaviour
                 { _colorStateKey, ColorUtility.ToHtmlStringRGBA(value) }
             };
 
-            await CloudSaveService.Instance.Data.ForceSaveAsync(dataToSave);
+            await CloudSaveService.Instance.Data.Player.SaveAsync(dataToSave);
         }
         catch (Exception e)
         {
