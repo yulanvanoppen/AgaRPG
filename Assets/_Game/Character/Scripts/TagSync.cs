@@ -1,59 +1,46 @@
-using System.Collections;
-using System.Collections.Generic;
-using Unity.Services.Authentication;
+using AgaRPG.Networking;
 using FishNet.Object;
+using FishNet.Object.Synchronizing;
 using UnityEngine;
+using UnityEngine.Serialization;
 using UnityEngine.UI;
-using UnityEngine.UIElements;
 
-public class TagSync : NetworkBehaviour
+namespace AgaRPG.UI
 {
-    public Text Tag;
-    private GameObject _mainCameraGO;
-    private bool _initialized;
-    private CloudSaveManager _cloudSaveManager;
-
-    private void Awake() => _cloudSaveManager = GameObject.FindGameObjectWithTag("CloudSaveManager")
-                                                          .GetComponent<CloudSaveManager>();
-
-    public override void OnStartClient()
+    /// <summary>
+    /// Name tag above a player. The owner sends its player name once; the server stores it in a
+    /// <see cref="SyncVar{T}"/> so all current and future clients receive it automatically.
+    /// </summary>
+    public class TagSync : NetworkBehaviour
     {
-        Initialize();
-        base.OnStartClient();
-    }
+        [FormerlySerializedAs("Tag")]
+        [SerializeField] private Text _label;
 
-    private void Initialize()
-    {
-        if (_initialized) return;
+        private const string CloudSaveManagerTag = "CloudSaveManager";
+        private const int MaxTagLength = 32;
 
-        if (_mainCameraGO == null)
-            _mainCameraGO = GameObject.FindGameObjectWithTag("MainCamera");
+        private readonly SyncVar<string> _playerTag = new(string.Empty);
 
-        if (IsOwner)
+        private void Awake() => _playerTag.OnChange += (_, next, _) => _label.text = next;
+
+        public override void OnStartClient()
         {
-            Tag.text = _cloudSaveManager.playerTag;
-            UpdateText();
-            InvokeRepeating("UpdateText", 1f, 1f);
+            base.OnStartClient();
+            if (!base.IsOwner) return;
+
+            string playerTag = GameObject.FindGameObjectWithTag(CloudSaveManagerTag)
+                                         .GetComponent<CloudSaveManager>().PlayerTag;
+            _label.text = playerTag;
+            ServerRpcSetTag(playerTag);
         }
 
-        _initialized = true;
-    }
+        [ServerRpc]
+        private void ServerRpcSetTag(string playerTag)
+        {
+            if (playerTag != null && playerTag.Length > MaxTagLength) playerTag = playerTag.Substring(0, MaxTagLength);
+            _playerTag.Value = playerTag ?? string.Empty;
+        }
 
-    void Update()
-    {
-        if (_mainCameraGO == null)
-            _mainCameraGO = GameObject.FindGameObjectWithTag("MainCamera");
-        transform.rotation = _mainCameraGO.transform.rotation;
-    }
-
-    private void UpdateText() => UpdateTextServerRpc(_cloudSaveManager.playerTag);
-
-    [ServerRpc]
-    private void UpdateTextServerRpc(string text) => UpdateTextObserversRpc(text);
-
-    [ObserversRpc]
-    private void UpdateTextObserversRpc(string text)
-    {
-        if (!IsOwner) Tag.text = text;
+        private void LateUpdate() => Billboard.FaceMainCamera(transform);
     }
 }

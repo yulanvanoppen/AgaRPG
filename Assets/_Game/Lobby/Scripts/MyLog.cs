@@ -1,74 +1,54 @@
+using System.Collections.Generic;
+using System.Text;
 using UnityEngine;
-using System.Collections;
-using Unity.VisualScripting;
+using UnityEngine.Serialization;
 
-public class MyLog : MonoBehaviour
+namespace AgaRPG.UI
 {
-    static string myLog;
-    static Queue myLogQueue = new Queue();
-    public string output = "";
-    public string stack = "";
-    private bool hidden = true;
-    private Vector2 scrollPos;
-    public int maxLines = 30;
-
-    private void Awake() => DontDestroyOnLoad(this);
-
-    void OnEnable()
+    /// <summary>
+    /// On-screen log viewer for builds (toggle with the Show/Hide button). Only active in the
+    /// editor and development builds.
+    /// </summary>
+    public class MyLog : MonoBehaviour
     {
-        Application.logMessageReceived += HandleLog;
-    }
+        [FormerlySerializedAs("maxLines")]
+        [SerializeField] private int _maxLines = 30;
 
-    void OnDisable()
-    {
-        Application.logMessageReceived -= HandleLog;
-    }
+        private readonly Queue<string> _lines = new Queue<string>();
+        private readonly StringBuilder _builder = new StringBuilder();
+        private string _text = string.Empty;
+        private bool _hidden = true;
 
-    void HandleLog(string logString, string stackTrace, LogType type)
-    {
-        output = logString;
-        stack = stackTrace;
-        string newString = "\n [" + type + "] : " + output;
-        myLogQueue.Enqueue(newString);
-        if (type == LogType.Exception)
+        private void Awake()
         {
-            newString = "\n" + stackTrace;
-            myLogQueue.Enqueue(newString);
-        }
-
-        while (myLogQueue.Count > maxLines)
-        {
-            myLogQueue.Dequeue();
-        }
-
-        myLog = string.Empty;
-        foreach (string s in myLogQueue)
-        {
-            myLog += s;
-        }
-    }
-
-    void OnGUI()
-    {
-        if (!hidden)
-        {
-            GUI.TextArea(new Rect(0, 0, Screen.width / 3, Screen.height), myLog);
-            if (GUI.Button(new Rect(Screen.width - 100, 10, 80, 20), "Hide"))
+            if (!Debug.isDebugBuild)
             {
-                hide(true);
+                enabled = false;
+                return;
             }
-        }
-        else
-        {
-            if (GUI.Button(new Rect(Screen.width - 100, 10, 80, 20), "Show"))
-            {
-                hide(false);
-            }
-        }
-    }
 
-    public void hide(bool shouldHide)
-    {
-        hidden = shouldHide;
+            DontDestroyOnLoad(gameObject);
+        }
+
+        private void OnEnable() => Application.logMessageReceived += HandleLog;
+        private void OnDisable() => Application.logMessageReceived -= HandleLog;
+
+        private void HandleLog(string message, string stackTrace, LogType type)
+        {
+            _lines.Enqueue($"\n [{type}] : {message}");
+            if (type == LogType.Exception) _lines.Enqueue("\n" + stackTrace);
+            while (_lines.Count > _maxLines) _lines.Dequeue();
+
+            _builder.Clear();
+            foreach (string line in _lines) _builder.Append(line);
+            _text = _builder.ToString();
+        }
+
+        private void OnGUI()
+        {
+            var buttonRect = new Rect(Screen.width - 100, 10, 80, 20);
+            if (!_hidden) GUI.TextArea(new Rect(0, 0, Screen.width / 3f, Screen.height), _text);
+            if (GUI.Button(buttonRect, _hidden ? "Show" : "Hide")) _hidden = !_hidden;
+        }
     }
 }

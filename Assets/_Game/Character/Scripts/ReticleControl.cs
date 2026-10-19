@@ -1,96 +1,76 @@
+using AgaRPG.Player;
 using FishNet.Object;
-using System.Collections;
-using System.Collections.Generic;
-using System.Drawing;
 using UnityEngine;
-using UnityEngine.UI;
+using UnityEngine.Serialization;
 
-public class ReticleControl : NetworkBehaviour
+namespace AgaRPG.UI
 {
-    private RectTransform _reticle;
-    private CanvasGroup _reticleGroup;
-    private CharacterController _characterController;
-    private PlayerState _playerState;
-    private PlayerAttributes _playerAttributes;
-    private PlayerWeapons _playerWeapons;
-
-    public float aimSize;
-    public float restingSize;
-    public float lookSize;
-    public float maxSize;
-    public float speed;
-    private float currentSize;
-
-    private void Awake()
+    /// <summary>Dynamic crosshair for the owning player: spreads while moving or looking, tightens when aiming.</summary>
+    public class ReticleControl : NetworkBehaviour
     {
-        _characterController = GetComponent<CharacterController>();
-        _playerState = GetComponent<PlayerState>();
-        _playerAttributes = GetComponent<PlayerAttributes>();
-        _playerWeapons = GetComponent<PlayerWeapons>();
-    }
+        [FormerlySerializedAs("aimSize")]
+        [SerializeField] private float _aimSize;
 
-    public override void OnStartClient()
-    {
-        _reticle = GameObject.Find("Reticle").GetComponent<RectTransform>();
-        _reticleGroup = GameObject.Find("Reticle").GetComponent<CanvasGroup>();
-    }
+        [FormerlySerializedAs("restingSize")]
+        [SerializeField] private float _restingSize;
 
-    private void Update()
-    {
-        if (IsOwner)
+        [FormerlySerializedAs("lookSize")]
+        [SerializeField] private float _lookSize;
+
+        [FormerlySerializedAs("maxSize")]
+        [SerializeField] private float _maxSize;
+
+        [FormerlySerializedAs("speed")]
+        [SerializeField] private float _speed;
+
+        private const string ReticleObjectName = "Reticle";
+        private const float MovingVelocitySqrThreshold = 1.9f;
+
+        private RectTransform _reticle;
+        private CanvasGroup _reticleGroup;
+        private CharacterController _characterController;
+        private PlayerState _state;
+        private PlayerAttributes _attributes;
+        private InputController _input;
+        private float _currentSize;
+
+        private bool IsMoving => _input.Move != Vector2.zero || _characterController.velocity.sqrMagnitude > MovingVelocitySqrThreshold;
+        private bool IsLooking => _input.Look != Vector2.zero;
+        private bool IsAiming => _input.Aim;
+
+        private void Awake()
         {
-            bool hide = _playerAttributes.dead; // || _playerWeapons.rangedWeapon == null;
-            _reticleGroup.alpha = hide ? 0f : 1f;
-            
-            if (isMoving && isAiming || !_playerState.Is(MeleeState.Inactive))
-            {
-                currentSize = Mathf.Lerp(currentSize, restingSize, Time.deltaTime * speed);
-            }
-            else if (isMoving)
-            {
-                currentSize = Mathf.Lerp(currentSize, maxSize, Time.deltaTime * speed);
-            }
-            else if (isAiming)
-            {
-                currentSize = Mathf.Lerp(currentSize, aimSize, Time.deltaTime * speed);
-            }
-            else if (isLooking)
-            {
-                currentSize = Mathf.Lerp(currentSize, lookSize, Time.deltaTime * speed);
-            }
-            else
-            {
-                currentSize = Mathf.Lerp(currentSize, restingSize, Time.deltaTime * speed);
-            }
-            _reticle.sizeDelta = new Vector2(currentSize, currentSize);
+            _characterController = GetComponent<CharacterController>();
+            _state = GetComponent<PlayerState>();
+            _attributes = GetComponent<PlayerAttributes>();
+            _input = GetComponent<InputController>();
         }
 
-    }
-
-    bool isMoving
-    {
-        get
+        public override void OnStartClient()
         {
-            return Input.GetAxis("Horizontal") != 0 ||
-                Input.GetAxis("Vertical") != 0 ||
-                _characterController.velocity.sqrMagnitude > 1.9;
+            base.OnStartClient();
+            if (!base.IsOwner) return;
+
+            GameObject reticle = GameObject.Find(ReticleObjectName);
+            _reticle = reticle.GetComponent<RectTransform>();
+            _reticleGroup = reticle.GetComponent<CanvasGroup>();
         }
-    }
 
-    bool isLooking
-    {
-        get
+        private void Update()
         {
-            return Input.GetAxis("Mouse X") != 0 ||Input.GetAxis("Mouse Y") != 0;
-        }
-    }
+            if (!base.IsOwner || _reticle == null) return;
 
+            _reticleGroup.alpha = _attributes.IsDead ? 0f : 1f;
 
-    bool isAiming
-    {
-        get
-        {
-            return GetComponent<InputController>().aim;
+            float targetSize;
+            if ((IsMoving && IsAiming) || !_state.Is(MeleeState.Inactive)) targetSize = _restingSize;
+            else if (IsMoving) targetSize = _maxSize;
+            else if (IsAiming) targetSize = _aimSize;
+            else if (IsLooking) targetSize = _lookSize;
+            else targetSize = _restingSize;
+
+            _currentSize = Mathf.Lerp(_currentSize, targetSize, Time.deltaTime * _speed);
+            _reticle.sizeDelta = new Vector2(_currentSize, _currentSize);
         }
     }
 }

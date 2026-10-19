@@ -1,22 +1,35 @@
 using FishNet.Object;
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Serialization;
 
-public class PositionClippingPlane : NetworkBehaviour
+namespace AgaRPG.Combat
 {
-    private Material _material;
-    public float offset;
-
-    private void Awake()
+    /// <summary>
+    /// Feeds a clipping plane to the arrow-clip material so arrows outside the weapon's
+    /// magazine are cut off as the clip slides.
+    /// </summary>
+    public class PositionClippingPlane : NetworkBehaviour
     {
-        _material = GetComponent<MeshRenderer>().material;
-    }
+        [FormerlySerializedAs("offset")]
+        [SerializeField] private float _offset;
 
-    void Update()
-    {
-        //if (!base.IsOwner) return;
-        _material.SetVector("_Point", transform.parent.position - offset * transform.up);
-        _material.SetVector("_Normal", -transform.up);
+        private static readonly int PointId = Shader.PropertyToID("_Point");
+        private static readonly int NormalId = Shader.PropertyToID("_Normal");
+
+        private Material _material;
+
+        private void Awake() => _material = GetComponent<MeshRenderer>().material;
+
+        private void Update()
+        {
+            Vector3 up = transform.up;
+            _material.SetVector(PointId, transform.parent.position - _offset * up);
+            _material.SetVector(NormalId, -up);
+        }
+
+        private void OnDestroy()
+        {
+            if (_material != null) Destroy(_material);
+        }
     }
 }

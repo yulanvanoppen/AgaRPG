@@ -1,173 +1,188 @@
-﻿
 using FishNet.Object;
-using System.Threading.Tasks;
 using Unity.Cinemachine;
 using UnityEngine;
-
+using UnityEngine.Serialization;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
 #endif
 
-[RequireComponent(typeof(CharacterController))]
-#if ENABLE_INPUT_SYSTEM 
-[RequireComponent(typeof(PlayerInput))]
-#endif
-public class PlayerCameraControl : NetworkBehaviour
+namespace AgaRPG.Player
 {
-    [Tooltip("Mouse/joystick look sensitivity")]
-    public float Sensitivity = 1f;
-
-    [Header("Cinemachine")]
-    [Tooltip("The follow target set in the Cinemachine Virtual Camera that the camera will follow")]
-    public GameObject CinemachineCameraTarget;
-
-    [Tooltip("How far in degrees can you move the camera up")]
-    public float TopClamp = 80.0f;
-
-    [Tooltip("How far in degrees can you move the camera down")]
-    public float BottomClamp = -45.0f;
-
-    [Tooltip("Additional degress to override the camera. Useful for fine tuning camera position when locked")]
-    public float CameraAngleOverride = 0.0f;
-
-    [Tooltip("For locking the camera position on all axis")]
-    public bool LockCameraPosition = false;
-
-
-    // cinemachine
-    public float cinemachineTargetYaw;
-    public float cinemachineTargetPitch;
-    private GameObject _mainCameraGO;
-    private CinemachineCamera _followVirtualCamera;
-    private CinemachineThirdPersonFollow _follow;
-    private float _targetCameraDistance = 3;
-
-    // input 
-#if ENABLE_INPUT_SYSTEM 
-    private PlayerInput _playerInput;
+    /// <summary>
+    /// Third-person orbit camera for the owning player: rotates the Cinemachine follow target
+    /// from look input and handles scroll-wheel zoom. Does nothing on non-owned instances.
+    /// </summary>
+    [RequireComponent(typeof(CharacterController))]
+#if ENABLE_INPUT_SYSTEM
+    [RequireComponent(typeof(PlayerInput))]
 #endif
-    private InputController _input;
-    [HideInInspector] public bool rotateOnMove = true;
-    private bool IsCurrentDeviceMouse
+    public class PlayerCameraControl : NetworkBehaviour
     {
-        get
+        [Tooltip("Mouse/joystick look sensitivity")]
+        [FormerlySerializedAs("Sensitivity")]
+        [SerializeField] private float _sensitivity = 1f;
+
+        [Header("Cinemachine")]
+        [Tooltip("The follow target set in the Cinemachine camera that the camera will follow")]
+        [FormerlySerializedAs("CinemachineCameraTarget")]
+        [SerializeField] private GameObject _cameraTarget;
+
+        [Tooltip("How far in degrees the camera can look up")]
+        [FormerlySerializedAs("TopClamp")]
+        [SerializeField] private float _topClamp = 80f;
+
+        [Tooltip("How far in degrees the camera can look down")]
+        [FormerlySerializedAs("BottomClamp")]
+        [SerializeField] private float _bottomClamp = -45f;
+
+        [Tooltip("Additional pitch offset, useful for fine tuning the camera when locked")]
+        [FormerlySerializedAs("CameraAngleOverride")]
+        [SerializeField] private float _cameraAngleOverride;
+
+        [Tooltip("Lock the camera rotation on all axes")]
+        [FormerlySerializedAs("LockCameraPosition")]
+        [SerializeField] private bool _lockCameraPosition;
+
+        [Header("Zoom")]
+        [SerializeField] private float _minZoomDistance = 2.5f;
+        [SerializeField] private float _maxZoomDistance = 10f;
+        [SerializeField] private float _zoomStep = 0.5f;
+        [SerializeField] private float _zoomSmoothing = 2f;
+
+        private const string FollowCameraTag = "PlayerFollowCamera";
+        private const float LookThreshold = 0.01f;
+
+        private float _yaw;
+        private float _pitch;
+        private float _targetCameraDistance = 3f;
+
+        private Transform _mainCamera;
+        private CinemachineCamera _followCamera;
+        private CinemachineThirdPersonFollow _follow;
+        private InputController _input;
+#if ENABLE_INPUT_SYSTEM
+        private PlayerInput _playerInput;
+#endif
+
+        /// <summary>Transform the Cinemachine cameras follow (the player's camera root).</summary>
+        public Transform CameraTarget => _cameraTarget.transform;
+
+        /// <summary>Current look sensitivity; aiming lowers it.</summary>
+        public float Sensitivity
+        {
+            get => _sensitivity;
+            set => _sensitivity = value;
+        }
+
+        /// <summary>World yaw of the main camera, used to make movement camera-relative.</summary>
+        public float CameraYaw => _mainCamera != null ? _mainCamera.eulerAngles.y : 0f;
+
+        /// <summary>Forward direction of the main camera.</summary>
+        public Vector3 CameraForward => _mainCamera != null ? _mainCamera.forward : transform.forward;
+
+        /// <summary>Distance of the default follow camera to its target.</summary>
+        public float FollowDistance => _follow != null ? _follow.CameraDistance : _targetCameraDistance;
+
+        private bool IsCurrentDeviceMouse
+        {
+            get
+            {
+#if ENABLE_INPUT_SYSTEM
+                return _playerInput != null && _playerInput.currentControlScheme == "KeyboardMouse";
+#else
+                return false;
+#endif
+            }
+        }
+
+        private void Awake()
+        {
+            _input = GetComponent<InputController>();
+#if ENABLE_INPUT_SYSTEM
+            _playerInput = GetComponent<PlayerInput>();
+#endif
+            _yaw = _cameraTarget.transform.rotation.eulerAngles.y;
+        }
+
+        public override void OnStartClient()
+        {
+            base.OnStartClient();
+            if (_mainCamera != null) return;
+
+            Camera main = Camera.main;
+            if (main != null) _mainCamera = main.transform;
+
+            GameObject followCameraObject = GameObject.FindGameObjectWithTag(FollowCameraTag);
+            _followCamera = followCameraObject.GetComponent<CinemachineCamera>();
+            _follow = followCameraObject.GetComponent<CinemachineThirdPersonFollow>();
+            if (_follow == null)
+                Debug.LogError($"{FollowCameraTag} has no {nameof(CinemachineThirdPersonFollow)} component.", followCameraObject);
+
+            if (base.IsOwner) _followCamera.Follow = _cameraTarget.transform;
+        }
+
+        /// <summary>Offsets the camera orientation, e.g. for weapon recoil (degrees).</summary>
+        public void AddRotationOffset(float pitch, float yaw)
+        {
+            _pitch += pitch;
+            _yaw += yaw;
+        }
+
+        private void Update()
+        {
+            if (base.IsOwner) Zoom();
+        }
+
+        private void LateUpdate()
+        {
+            if (base.IsOwner) RotateCamera();
+        }
+
+        private void RotateCamera()
+        {
+            if (_input.Look.sqrMagnitude >= LookThreshold && !_lockCameraPosition)
+            {
+                // Mouse delta is already frame-rate independent; stick input is not.
+                float deltaTimeMultiplier = IsCurrentDeviceMouse ? 1f : Time.deltaTime;
+                _yaw += _input.Look.x * deltaTimeMultiplier * _sensitivity;
+                _pitch += _input.Look.y * deltaTimeMultiplier * _sensitivity;
+            }
+
+            _yaw = ClampAngle(_yaw, float.MinValue, float.MaxValue);
+            _pitch = ClampAngle(_pitch, _bottomClamp, _topClamp);
+
+            _cameraTarget.transform.rotation = Quaternion.Euler(_pitch + _cameraAngleOverride, _yaw, 0f);
+        }
+
+        private void Zoom()
+        {
+            if (_follow == null) return;
+
+            float scroll = ReadScroll();
+            if (scroll > 0f) _targetCameraDistance = Mathf.Max(_minZoomDistance, _targetCameraDistance - _zoomStep);
+            else if (scroll < 0f) _targetCameraDistance = Mathf.Min(_maxZoomDistance, _targetCameraDistance + _zoomStep);
+
+            _follow.CameraDistance = Mathf.Lerp(_follow.CameraDistance, _targetCameraDistance, _zoomSmoothing * Time.deltaTime);
+
+            // Move the camera further over the shoulder when zoomed in.
+            float zoomedOut = _follow.CameraDistance - _maxZoomDistance;
+            _follow.CameraSide = 0.8f + 0.1f * zoomedOut * zoomedOut / 56.25f;
+        }
+
+        private static float ReadScroll()
         {
 #if ENABLE_INPUT_SYSTEM
-            if (_playerInput != null)
-                return _playerInput.currentControlScheme == "KeyboardMouse";
-            else
-                return GetComponent<PlayerInput>().currentControlScheme == "KeyboardMouse";
+            return Mouse.current != null ? Mouse.current.scroll.ReadValue().y : 0f;
 #else
-			return false;
+            return Input.GetAxis("Mouse ScrollWheel");
 #endif
         }
-    }
 
-    // player
-    private const float _threshold = 0.01f;
-
-    // managers
-    private PauseMenu _menuManager;
-
-
-    private void Awake()
-    {
-        cinemachineTargetYaw = CinemachineCameraTarget.transform.rotation.eulerAngles.y;
-
-        _input = GetComponent<InputController>();
-    }
-
-
-    public override void OnStartClient()
-    {
-        base.OnStartClient();
-        Initialize();
-    }
-
-
-    private void Initialize()
-    {
-        if (_mainCameraGO != null) return;
-
-        _mainCameraGO = GameObject.FindGameObjectWithTag("MainCamera");
-        var camObject = GameObject.FindGameObjectWithTag("PlayerFollowCamera");
-        _followVirtualCamera = camObject.GetComponent<CinemachineCamera>();
-        _follow = camObject.GetComponent<CinemachineThirdPersonFollow>();
-
-        if (_follow == null)
-            Debug.LogError("PlayerFollowCamera has no CinemachineThirdPersonFollow. Did the scene/prefab upgrade run?");
-
-        if (base.IsOwner) _followVirtualCamera.Follow = CinemachineCameraTarget.transform;
-    }
-
-
-    private void Update()
-    {
-        if (!base.IsOwner) return;
-        Zoom();
-    }
-
-
-    private void LateUpdate()
-    {
-        if (!base.IsOwner) return;
-        CameraRotation();
-    }
-
-
-    private void CameraRotation()
-    {
-        // if there is an input and camera position is not fixed
-        if (_input.look.sqrMagnitude >= _threshold && !LockCameraPosition)
+        private static float ClampAngle(float angle, float min, float max)
         {
-            //Don't multiply mouse input by Time.deltaTime;
-            float deltaTimeMultiplier = IsCurrentDeviceMouse ? 1.0f : Time.deltaTime;
-
-            cinemachineTargetYaw += _input.look.x * deltaTimeMultiplier * Sensitivity;
-            cinemachineTargetPitch += _input.look.y * deltaTimeMultiplier * Sensitivity;
-        }
-
-        // clamp our rotations so our values are limited 360 degrees
-        cinemachineTargetYaw = ClampAngle(cinemachineTargetYaw, float.MinValue, float.MaxValue);
-        cinemachineTargetPitch = ClampAngle(cinemachineTargetPitch, BottomClamp, TopClamp);
-
-        // Cinemachine will follow this target
-        CinemachineCameraTarget.transform.rotation = Quaternion.Euler(cinemachineTargetPitch + CameraAngleOverride,
-            cinemachineTargetYaw, 0.0f);
-    }
-
-
-    private void Zoom()
-    {
-        if (base.IsOwner)
-        {
-            if (Input.GetAxis("Mouse ScrollWheel") > 0f)
-            {
-                if (_targetCameraDistance > 2.5f) _targetCameraDistance -= .5f;
-            }
-            else if (Input.GetAxis("Mouse ScrollWheel") < 0f)
-            {
-                if (_targetCameraDistance < 10f) _targetCameraDistance += .5f;
-            }
-
-            _follow.CameraDistance = Mathf.Lerp(_follow.CameraDistance, _targetCameraDistance, 2f * Time.deltaTime);
-            _follow.CameraSide = 0.8f + 0.1f * Mathf.Pow(_follow.CameraDistance - 10f, 2f) / 56.25f;
+            if (angle < -360f) angle += 360f;
+            if (angle > 360f) angle -= 360f;
+            return Mathf.Clamp(angle, min, max);
         }
     }
-
-
-    public float GetCameraDistance() => _follow.CameraDistance;
-
-
-    private static float ClampAngle(float lfAngle, float lfMin, float lfMax)
-    {
-        if (lfAngle < -360f) lfAngle += 360f;
-        if (lfAngle > 360f) lfAngle -= 360f;
-        return Mathf.Clamp(lfAngle, lfMin, lfMax);
-    }
-
-
-    public Vector3 EulerAngles() => _mainCameraGO.transform.eulerAngles;
-
-    public Vector3 Forward() => _mainCameraGO.transform.forward;
 }

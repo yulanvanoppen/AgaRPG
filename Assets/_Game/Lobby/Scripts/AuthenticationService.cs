@@ -1,198 +1,186 @@
+using System;
 using System.Threading.Tasks;
 using Unity.Services.Authentication;
 using Unity.Services.Authentication.PlayerAccounts;
 using Unity.Services.Core;
 using UnityEngine;
-using System;
-
-
 #if UNITY_EDITOR
 using ParrelSync;
 #endif
 
-namespace Unity.Services.Authentication.PlayerAccounts.Samples
+namespace AgaRPG.Networking
 {
+    /// <summary>
+    /// Wrapper around Unity Gaming Services sign-in: anonymous sign-in, "Sign in with Unity"
+    /// (Player Accounts) and player names. Each ParrelSync clone uses its own UGS profile so
+    /// several editor instances can be signed in as different players.
+    /// </summary>
     public static class Authentication
     {
-        public static string playerId { get; private set; } = "";
-        public static string playerTag { get; private set; } = "";
-        public static bool signedIn = false;
-        public static bool initPlayerAccountService;
+        public static string PlayerId { get; private set; } = string.Empty;
+        public static string PlayerTag { get; private set; } = string.Empty;
+        public static bool IsSignedIn { get; private set; }
 
+        private static bool _playerAccountsHooked;
 
-        // "Enter Play Mode Options" has Domain Reload disabled in this project, so static
-        // fields keep their values from the previous Play session. Reset them on every entry.
+        // Domain reload may be disabled in "Enter Play Mode Options", in which case static fields
+        // survive between play sessions. Reset them on every entry into play mode.
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void ResetStatics()
         {
-            playerId = "";
-            playerTag = "";
-            signedIn = false;
-            initPlayerAccountService = false;
+            PlayerId = string.Empty;
+            PlayerTag = string.Empty;
+            IsSignedIn = false;
+            _playerAccountsHooked = false;
         }
 
-
-        public static async Task InitializeUnityServices()
-        {
-            if (UnityServices.State == ServicesInitializationState.Uninitialized)
-            {
-                var options = new InitializationOptions();
-
-#if UNITY_EDITOR
-                if (ClonesManager.IsClone()) options.SetProfile(ClonesManager.GetArgument());
-                else options.SetProfile("Main");
-#else
-                options.SetProfile("Standalone");
-#endif
-
-                if (Application.isBatchMode) options.SetProfile("Headless");
-
-                await UnityServices.InitializeAsync(options);
-            }
-
-            if (!initPlayerAccountService)
-            {
-                // PlayerAccountService only exists when Player Accounts is configured in
-                // Project Settings > Services > Player Accounts. If it isn't, don't let that
-                // block anonymous sign-in: log a warning and carry on without Unity sign-in.
-                try
-                {
-                    PlayerAccountService.Instance.SignedIn -= SignInWithUnity;
-                    PlayerAccountService.Instance.SignedIn += SignInWithUnity;
-                    initPlayerAccountService = true;
-                }
-                catch (ServicesInitializationException e)
-                {
-                    Debug.LogWarning($"Player Accounts not available, Unity sign-in disabled: {e.Message}");
-                }
-            }
-        }
-
-
-        public static async Task StartUp()
+        /// <summary>Initialises Unity Services and hooks up sign-in events. Safe to call repeatedly.</summary>
+        public static async Task InitializeAsync()
         {
             try
             {
-                initPlayerAccountService = false;
-                await InitializeUnityServices();
-                SetupEvents();
+                await InitializeUnityServicesAsync();
+                HookAuthenticationEvents();
             }
             catch (Exception e)
             {
                 Debug.LogException(e);
             }
-            
         }
 
-
-        private static void SetupEvents()
+        /// <summary>Signs in anonymously, unless already signed in.</summary>
+        public static async Task SignInAnonymouslyAsync()
         {
-            // Unsubscribe first so handlers are never added twice (StartUp can run more than
-            // once per editor session when Domain Reload is disabled).
-            var auth = AuthenticationService.Instance;
-            auth.SignedIn -= OnSignedIn;         auth.SignedIn += OnSignedIn;
-            auth.SignInFailed -= OnSignInFailed; auth.SignInFailed += OnSignInFailed;
-            auth.SignedOut -= OnSignedOut;       auth.SignedOut += OnSignedOut;
-            auth.Expired -= OnExpired;           auth.Expired += OnExpired;
-        }
-
-        private static void OnSignedIn()
-        {
-            Debug.Log($"PlayerID: {AuthenticationService.Instance.PlayerId}");
-            Debug.Log($"Access Token: {AuthenticationService.Instance.AccessToken}");
-        }
-
-        private static void OnSignInFailed(RequestFailedException err) => Debug.LogError(err);
-        private static void OnSignedOut() => Debug.Log("Player signed out.");
-        private static void OnExpired() => Debug.Log("Player session could not be refreshed and expired.");
-
-
-        public static async Task LoginAnonymously()
-        {
-            await InitializeUnityServices();
+            await InitializeUnityServicesAsync();
 
             if (!AuthenticationService.Instance.IsSignedIn)
             {
                 await AuthenticationService.Instance.SignInAnonymouslyAsync();
-                playerId = AuthenticationService.Instance.PlayerId;
-                Debug.Log(playerId);
-
-                playerTag = await AuthenticationService.Instance.GetPlayerNameAsync();
-                if (playerTag == null) await SetPlayerTag("Anonymous");
+                await OnSignedInAsync();
             }
 
-            signedIn = true;
+            IsSignedIn = true;
         }
 
-
-        public static async Task Login()
+        /// <summary>Signs in through the Unity Player Accounts browser flow.</summary>
+        public static async Task SignInWithUnityAsync()
         {
-            await InitializeUnityServices();
+            await InitializeUnityServicesAsync();
 
             if (!AuthenticationService.Instance.IsSignedIn)
             {
                 await PlayerAccountService.Instance.StartSignInAsync();
 
-                while (!AuthenticationService.Instance.IsSignedIn)
-                    await Task.Delay(25);
-
-                playerTag = await AuthenticationService.Instance.GetPlayerNameAsync();
-                if (playerTag == null) await SetPlayerTag("Anonymous");
+                // PlayerAccountService.SignedIn completes the UGS sign-in (see OnPlayerAccountSignedIn).
+                while (!AuthenticationService.Instance.IsSignedIn) await Task.Delay(25);
+                await OnSignedInAsync();
             }
 
-            signedIn = true;
+            IsSignedIn = true;
         }
-
-
-        public static async Task SetPlayerTag(string tag)
-        {
-            try
-            {
-                await AuthenticationService.Instance.UpdatePlayerNameAsync(tag);
-                playerTag = await AuthenticationService.Instance.GetPlayerNameAsync();
-            }
-            catch (AuthenticationException ex)
-            {
-                Debug.LogException(ex);
-            }
-            catch (RequestFailedException ex)
-            {
-                Debug.LogException(ex);
-            }
-        }
-
 
         public static void SignOut()
         {
-            if (PlayerAccountService.Instance.IsSignedIn)
-                PlayerAccountService.Instance.SignOut();
+            if (_playerAccountsHooked && PlayerAccountService.Instance.IsSignedIn) PlayerAccountService.Instance.SignOut();
             AuthenticationService.Instance.SignOut();
             AuthenticationService.Instance.ClearSessionToken();
 
-            playerId = "";
-            playerTag = null;
-            signedIn = false;
+            PlayerId = string.Empty;
+            PlayerTag = string.Empty;
+            IsSignedIn = false;
         }
 
-
-        public static async void SignInWithUnity()
+        /// <summary>Changes the player's UGS player name.</summary>
+        public static async Task SetPlayerTagAsync(string playerTag)
         {
             try
             {
-                Debug.Log(PlayerAccountService.Instance.AccessToken);
+                await AuthenticationService.Instance.UpdatePlayerNameAsync(playerTag);
+                PlayerTag = await AuthenticationService.Instance.GetPlayerNameAsync();
+            }
+            catch (Exception e) when (e is AuthenticationException || e is RequestFailedException)
+            {
+                Debug.LogException(e);
+            }
+        }
+
+        private static async Task InitializeUnityServicesAsync()
+        {
+            if (UnityServices.State == ServicesInitializationState.Uninitialized)
+            {
+                var options = new InitializationOptions();
+                options.SetProfile(GetProfileName());
+                await UnityServices.InitializeAsync(options);
+            }
+
+            HookPlayerAccounts();
+        }
+
+        private static string GetProfileName()
+        {
+            if (Application.isBatchMode) return "Headless";
+#if UNITY_EDITOR
+            return ClonesManager.IsClone() ? ClonesManager.GetArgument() : "Main";
+#else
+            return "Standalone";
+#endif
+        }
+
+        private static void HookPlayerAccounts()
+        {
+            if (_playerAccountsHooked) return;
+
+            // Player Accounts only exists when configured in Project Settings > Services > Player
+            // Accounts. Without it, anonymous sign-in should still work.
+            try
+            {
+                PlayerAccountService.Instance.SignedIn -= OnPlayerAccountSignedIn;
+                PlayerAccountService.Instance.SignedIn += OnPlayerAccountSignedIn;
+                _playerAccountsHooked = true;
+            }
+            catch (ServicesInitializationException e)
+            {
+                Debug.LogWarning($"Player Accounts not available, Unity sign-in disabled: {e.Message}");
+            }
+        }
+
+        private static void HookAuthenticationEvents()
+        {
+            // Unsubscribe first: AuthenticationService.Instance can outlive a play session when
+            // domain reload is disabled, and handlers must not pile up.
+            IAuthenticationService auth = AuthenticationService.Instance;
+            auth.SignedIn -= LogSignedIn;
+            auth.SignedIn += LogSignedIn;
+            auth.SignInFailed -= LogSignInFailed;
+            auth.SignInFailed += LogSignInFailed;
+            auth.SignedOut -= LogSignedOut;
+            auth.SignedOut += LogSignedOut;
+            auth.Expired -= LogExpired;
+            auth.Expired += LogExpired;
+        }
+
+        private static void LogSignedIn() => Debug.Log($"Signed in as {AuthenticationService.Instance.PlayerId}");
+        private static void LogSignInFailed(RequestFailedException error) => Debug.LogError(error);
+        private static void LogSignedOut() => Debug.Log("Signed out.");
+        private static void LogExpired() => Debug.LogWarning("Player session could not be refreshed and expired.");
+
+        private static async void OnPlayerAccountSignedIn()
+        {
+            try
+            {
                 await AuthenticationService.Instance.SignInWithUnityAsync(PlayerAccountService.Instance.AccessToken);
-                Debug.Log("SignIn is successful.");
-                playerId = AuthenticationService.Instance.PlayerId;
-                Debug.Log(playerId);
             }
-            catch (AuthenticationException ex)
+            catch (Exception e) when (e is AuthenticationException || e is RequestFailedException)
             {
-                Debug.LogException(ex);
+                Debug.LogException(e);
             }
-            catch (RequestFailedException ex)
-            {
-                Debug.LogException(ex);
-            }
+        }
+
+        private static async Task OnSignedInAsync()
+        {
+            PlayerId = AuthenticationService.Instance.PlayerId;
+            PlayerTag = await AuthenticationService.Instance.GetPlayerNameAsync();
+            if (string.IsNullOrEmpty(PlayerTag)) await SetPlayerTagAsync("Anonymous");
         }
     }
 }

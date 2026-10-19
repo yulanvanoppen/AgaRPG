@@ -1,641 +1,602 @@
-﻿using FishNet;
+using AgaRPG.Player;
 using FishNet.Object;
 using FishNet.Object.Prediction;
 using FishNet.Object.Synchronizing;
 using FishNet.Transporting;
-using Unity.VisualScripting;
+using Unity.Cinemachine;
 using UnityEngine;
 using UnityEngine.Animations.Rigging;
-using Unity.Cinemachine;
-#if ENABLE_INPUT_SYSTEM
-using UnityEngine.InputSystem;
-#endif
+using UnityEngine.Serialization;
 
-
-
-public class PlayerCombat : NetworkBehaviour
+namespace AgaRPG.Combat
 {
-    #region Properties
-    // aiming
-    [Tooltip("Normal sensitivity")]
-    [SerializeField] private float _normalSensitivity;
-
-    [Tooltip("Sensitivity while aiming")]
-    [SerializeField] private float _aimSensitivity;
-
-    [Tooltip("Aim target at mouse world position")]
-    [SerializeField] private Transform _aimTarget;
-
-    [Tooltip("Capsule hitmask on own body (to exclude from aim target collisions)")]
-    [SerializeField] private GameObject _bodyHitMask;
-
-    [Tooltip("Capsule hitmask on own head (to exclude from aim target collisions)")]
-    [SerializeField] private GameObject _headHitMask;
-
-    private LayerMask _aimColliderLayerMask = new LayerMask();
-
-    //animation rigging
-    [Tooltip("Animation rig for head rotation")]
-    [SerializeField] private Rig _headRig;
-
-    [Tooltip("Animation rig for gun pointing")]
-    [SerializeField] private Rig _aimRig;
-
-    [Tooltip("Animation rig for gun holding")]
-    [SerializeField] private Rig _handRig;
-
-    [Tooltip("Animation rig for melee weapon position")]
-    [SerializeField] private Rig _meleeRig;
-
-    [Tooltip("Weapon to pivot constraint when readying")]
-    [SerializeField] private TwoBoneIKConstraint _meleeReadyConstraint;
-
-    [Tooltip("Offhand to pivot constraint when readying")]
-    [SerializeField] private TwoBoneIKConstraint _offhandReadyConstraint;
-
-    [Tooltip("Weapon to pivot constraint when striking")]
-    [SerializeField] private TwoBoneIKConstraint _meleeStrikeConstraint;
-
-    [Tooltip("Offhand to pivot constraint when striking")]
-    [SerializeField] private TwoBoneIKConstraint _offhandStrikeConstraint;
-
-    [Tooltip("Melee striking pivots container")]
-    [SerializeField] private GameObject _meleeStrikePivot;
-
-
-
-    private float _headRigTargetWeight = 1f;
-    private float _aimRigTargetWeight = 0f;
-    private float _aimLayerTargetWeight = 0f;
-    private float _meleeRigTargetWeight = 0f;
-
-    public bool alwaysAim = false;
-    public bool alwaysReady = false;
-    public bool alwaysStrike = false;
-    public bool controlChest = false;
-    public float rayOffset = 1f;
-
-    // cinemachine
-    private Unity.Cinemachine.CinemachineCamera _aimVirtualCamera;
-    private Unity.Cinemachine.CinemachineCamera _meleeVirtualCamera;
-
-    // input
-#if ENABLE_INPUT_SYSTEM
-    private PlayerInput _playerInput;
-#endif
-    private InputController _input;
-    public bool _shoot = false;
-    public bool _pressed = false;
-    public bool _released = false;
-    public float strikeCooldown = 0f;
-    public float readyCooldown = 0f;
-    public bool firstReady = true;
-
-    // controllers
-    private PlayerState _state;
-    private PlayerAnimation _animation;
-    private PlayerAttributes _attributes;
-    private PlayerMovement _movement;
-    private PlayerCameraControl _cameraControl;
-    private PlayerWeapons _weapons;
-
-    // player
-    // strafe: the owner sets it locally and asks the server to relay it (ServerRpcSetStrafe);
-    // the server pushes it to every client except the owner through the SyncVar
-    private readonly SyncVar<bool> _strafe = new(
-        new SyncTypeSettings(WritePermission.ServerOnly, ReadPermission.ExcludeOwner, 0.05f, Channel.Unreliable));
-
-    public bool strafe { get; private set; } = false;
-
-    private void SetStrafe(bool value)
+    /// <summary>
+    /// Predicted combat for ranged and directional melee weapons.
+    /// </summary>
+    /// <remarks>
+    /// The owner samples input every frame, packs it into <see cref="CombatData"/> on each network
+    /// tick and runs it through FishNet's <c>[Replicate]</c>; the server (and spectators, via state
+    /// forwarding) run the same tick logic. Visual-only work is skipped during reconciliation
+    /// replays. Melee strikes on the owner are latency compensated with
+    /// <see cref="StrikeTimingCompensator"/>.
+    /// </remarks>
+    public class PlayerCombat : NetworkBehaviour
     {
-        if (strafe == value) return;
-        strafe = value;
-        if (base.IsServerInitialized) _strafe.Value = value;
-        else if (base.IsOwner) ServerRpcSetStrafe(value);
-    }
+        #region Inspector
+        [Header("Aiming")]
+        [Tooltip("Normal look sensitivity")]
+        [SerializeField] private float _normalSensitivity;
 
-    [ServerRpc]
-    private void ServerRpcSetStrafe(bool value)
-    {
-        strafe = value;
-        _strafe.Value = value;
-    }
+        [Tooltip("Look sensitivity while aiming")]
+        [SerializeField] private float _aimSensitivity;
 
-    private void OnStrafe(bool prev, bool next, bool asServer)
-    {
-        strafe = next;
-        if (!base.IsOwner) SwapRangedRigs(next);
-    }
+        [Tooltip("Aim target, moved to the point under the crosshair")]
+        [SerializeField] private Transform _aimTarget;
 
-    public Vector2 strikeDir;
-    private Vector2 _prevStrikeDir;
-    private float _readyTransition;
-    private float _strikeTime;
-    private float _latencyEstimate;
-    #endregion
+        [Tooltip("Start the aim ray this far beyond the camera distance, so it starts in front of the player")]
+        [FormerlySerializedAs("rayOffset")]
+        [SerializeField] private float _rayOffset = 1f;
 
-    #region ClientSidePredicitonProperties
+        [Header("Animation rigging")]
+        [Tooltip("Rig for head rotation")]
+        [SerializeField] private Rig _headRig;
 
-    private CombatData _lastCombatData = default;
+        [Tooltip("Rig for gun pointing")]
+        [SerializeField] private Rig _aimRig;
 
-    public struct CombatData : IReplicateData
-    {
-        public Vector2 Look;
-        public Quaternion CameraRotation;
-        public bool Aim;
-        public bool Shoot;
-        public bool Pressed;
-        public bool Released;
-        public Ray ScreenCenterRay;
-        public CombatData(Vector2 look, Quaternion cameraRotation, bool aim, bool shoot,
-                          bool pressed, bool released, Ray screenCenterRay)
+        [Tooltip("Rig for gun holding")]
+        [SerializeField] private Rig _handRig;
+
+        [Tooltip("Rig for melee weapon position")]
+        [SerializeField] private Rig _meleeRig;
+
+        [Tooltip("Weapon to pivot constraint when readying")]
+        [SerializeField] private TwoBoneIKConstraint _meleeReadyConstraint;
+
+        [Tooltip("Offhand to pivot constraint when readying")]
+        [SerializeField] private TwoBoneIKConstraint _offhandReadyConstraint;
+
+        [Tooltip("Weapon to pivot constraint when striking")]
+        [SerializeField] private TwoBoneIKConstraint _meleeStrikeConstraint;
+
+        [Tooltip("Offhand to pivot constraint when striking")]
+        [SerializeField] private TwoBoneIKConstraint _offhandStrikeConstraint;
+
+        [Tooltip("Melee striking pivots container, follows the camera rotation")]
+        [SerializeField] private GameObject _meleeStrikePivot;
+
+        [Header("Melee timing")]
+        [Tooltip("Seconds a strike stays active (can hit)")]
+        [SerializeField] private float _strikeDuration = 0.5f;
+
+        [Tooltip("Minimum time between strike direction changes")]
+        [SerializeField] private float _directionChangeCooldown = 1f / 3f;
+
+        [Tooltip("Ticks the server buffers input before simulating it; used for strike compensation")]
+        [SerializeField] private int _serverInputBufferTicks = 2;
+
+        [Header("Debug")]
+        [FormerlySerializedAs("alwaysAim")]
+        [SerializeField] private bool _debugAlwaysAim;
+
+        [FormerlySerializedAs("alwaysReady")]
+        [SerializeField] private bool _debugAlwaysReady;
+
+        [FormerlySerializedAs("alwaysStrike")]
+        [SerializeField] private bool _debugAlwaysStrike;
+
+        [FormerlySerializedAs("controlChest")]
+        [SerializeField] private bool _debugControlChest;
+        #endregion
+
+        #region Constants
+        private const string AimCameraTag = "PlayerAimCamera";
+        private const string MeleeCameraTag = "PlayerMeleeCamera";
+        private const string MeleeAnimatorLayer = "Melee Weapon";
+        private const int AimAnimatorLayer = 2;
+        private const int ActiveCameraPriority = 20;
+        private const int InactiveCameraPriority = 5;
+        private const float RigBlendSpeed = 25f;
+        private const float ConstraintBlendSpeed = 20f;
+        private const float ReadyTransitionSpeed = 15f;
+        private const float BodyTurnSpeed = 20f;
+        private const float AimRayLength = 999f;
+        #endregion
+
+        #region State
+        private LayerMask _aimLayerMask;
+        private TwoBoneIKConstraint _chestConstraint;
+        private CinemachineCamera _aimCamera;
+        private CinemachineCamera _meleeCamera;
+        private CinemachineThirdPersonFollow _aimCameraFollow;
+        private CinemachineThirdPersonFollow _meleeCameraFollow;
+
+        private InputController _input;
+        private PlayerState _state;
+        private PlayerAnimation _animation;
+        private PlayerAttributes _attributes;
+        private PlayerCameraControl _cameraControl;
+        private PlayerWeapons _weapons;
+
+        // Rig weights the rigs blend towards.
+        private float _headRigTarget = 1f;
+        private float _aimRigTarget;
+        private float _aimLayerTarget;
+        private float _meleeRigTarget;
+
+        // Trigger input sampled per frame and consumed per tick (owner only).
+        private bool _triggerHeld;
+        private bool _shootQueued;
+        private bool _releaseQueued;
+
+        // Melee simulation.
+        private Vector2 _strikeDirection;
+        private Vector2 _previousStrikeDirection;
+        private float _readyTransition;
+        private float _strikeTimer;
+        private float _directionCooldown;
+        private bool _firstDirectionChange = true;
+        private readonly StrikeTimingCompensator _strikeCompensator = new StrikeTimingCompensator();
+
+        private CombatData _lastCombatData;
+
+        // Strafing is decided by the owner and relayed by the server to all other clients.
+        private readonly SyncVar<bool> _strafeSync = new(new SyncTypeSettings(
+            WritePermission.ServerOnly, ReadPermission.ExcludeOwner, 0.05f, Channel.Unreliable));
+
+        /// <summary>True while the character strafes (aiming, or melee stance) instead of turning to move.</summary>
+        public bool IsStrafing { get; private set; }
+        #endregion
+
+        #region Prediction data
+        /// <summary>Combat input for one tick.</summary>
+        public struct CombatData : IReplicateData
         {
-            Look = look;
-            CameraRotation = cameraRotation;
-            Aim = aim;
-            Shoot = shoot;
-            Pressed = pressed;
-            Released = released;
-            ScreenCenterRay = screenCenterRay;
-            _tick = 0;
-        }
+            public Vector2 Look;
+            public Quaternion CameraRotation;
+            public bool Aim;
+            public bool Shoot;
+            public bool Released;
+            public Ray ScreenCenterRay;
 
-        private uint _tick;
-        public void Dispose() { }
-        public uint GetTick() => _tick;
-        public void SetTick(uint value) => _tick = value;
-    };
-
-    public struct ReconcileData : IReconcileData
-    {
-        public Vector3 AimTargetPosition;
-        //public Vector3 Forward;
-        public RangedState RangedState;
-        public MeleeState MeleeState;
-
-        public ReconcileData(Vector3 aimTargetPosition, Vector3 forward, RangedState rangedState, MeleeState meleeState)
-        {
-            AimTargetPosition = aimTargetPosition;
-            //Forward = forward;
-            RangedState = rangedState;
-            MeleeState = meleeState;
-            _tick = 0;
-        }
-
-        private uint _tick;
-        public void Dispose() { }
-        public uint GetTick() => _tick;
-        public void SetTick(uint value) => _tick = value;
-    };
-    #endregion
-
-    #region Initialization
-    private void Awake()
-    {
-        _strafe.OnChange += OnStrafe;
-
-        _input = GetComponent<InputController>();
-        _state = GetComponent<PlayerState>();
-        _animation = GetComponent<PlayerAnimation>();
-        _attributes = GetComponent<PlayerAttributes>();
-        _movement = GetComponent<PlayerMovement>();
-        _cameraControl = GetComponent<PlayerCameraControl>();
-        _weapons = GetComponent<PlayerWeapons>();
-
-        _aimColliderLayerMask = LayerMask.GetMask("Default") | LayerMask.GetMask("PlayerBody")
-                                                             | LayerMask.GetMask("PlayerHead");
-    }
-
-
-    public override void OnStartNetwork()
-    {
-        base.OnStartNetwork();
-        base.TimeManager.OnTick += TimeManager_OnTick;
-        //base.TimeManager.OnUpdate += TimeManager_OnUpdate;
-    }
-
-
-    public override void OnStopNetwork()
-    {
-        base.OnStopNetwork();
-        base.TimeManager.OnTick -= TimeManager_OnTick;
-        //base.TimeManager.OnUpdate -= TimeManager_OnUpdate;
-    }
-
-
-    public override void OnStartClient()
-    {
-        base.OnStartClient();
-        Initialize();
-    }
-
-
-    private void Initialize()
-    {
-        if (_aimVirtualCamera != null) return;
-
-        _aimVirtualCamera = GameObject.FindGameObjectWithTag("PlayerAimCamera").GetComponent<Unity.Cinemachine.CinemachineCamera>();
-        if (base.IsOwner) _aimVirtualCamera.Follow = transform.Find("Graphical").transform.Find("PlayerCameraRoot").transform;
-
-        _meleeVirtualCamera = GameObject.FindGameObjectWithTag("PlayerMeleeCamera").GetComponent<Unity.Cinemachine.CinemachineCamera>();
-        if (base.IsOwner) _meleeVirtualCamera.Follow = transform.Find("Graphical").transform.Find("PlayerCameraRoot").transform;
-
-        _aimTarget.parent.SetParent(null, true);
-
-        //if (base.IsOwner)
-        //{
-        //    _bodyHitMask.layer = LayerMask.NameToLayer("MyPlayerBody");
-        //    _headHitMask.layer = LayerMask.NameToLayer("MyPlayerHead");
-        //}
-    }
-    #endregion
-
-    #region ClientSidePredictionLogic
-    private void Update()
-    {
-        // gather trigger input between network ticks
-        if (!_shoot && _input.shoot && !_released) _pressed = true;
-        if (_shoot && !_input.shoot && !_pressed) _released = true;
-
-        if (_weapons.rangedWeapon != null)
-        {
-            if (_weapons.rangedWeapon.automatic)
-                _shoot = _input.shoot;
-            else
+            public CombatData(Vector2 look, Quaternion cameraRotation, bool aim, bool shoot, bool released, Ray screenCenterRay)
             {
-                if (_input.shoot) _shoot = true;
-                _input.shoot = false;
+                Look = look;
+                CameraRotation = cameraRotation;
+                Aim = aim;
+                Shoot = shoot;
+                Released = released;
+                ScreenCenterRay = screenCenterRay;
+                _tick = 0;
             }
+
+            private uint _tick;
+            public void Dispose() { }
+            public uint GetTick() => _tick;
+            public void SetTick(uint value) => _tick = value;
         }
 
-        if (_weapons.meleeWeapon != null) _shoot = _input.shoot;
-    }
-
-    private void TimeManager_OnTick()
-    {
-        Attack(BuildCombatData());
-        CreateReconcile();      // call on every instance; only the server actually sends the reconcile
-    }
-
-
-    public override void CreateReconcile()
-    {
-        ReconcileData rd = new ReconcileData(_aimTarget.position, transform.forward,
-                                             _state.GetRangedState(), _state.GetMeleeState());
-        Reconciliation(rd);
-    }
-
-
-    [Reconcile]
-    private void Reconciliation(ReconcileData rd, Channel channel = Channel.Unreliable)
-    {
-        _aimTarget.position = rd.AimTargetPosition;
-        //transform.forward = rd.Forward;
-    }
-
-
-    private CombatData BuildCombatData()
-    {
-        if (!base.IsOwner) return default;
-
-        Vector2 screenCenterPoint = new Vector2(Screen.width / 2f, Screen.height / 2f);
-        Ray screenCenterRay = Camera.main.ScreenPointToRay(screenCenterPoint);
-        screenCenterRay.origin += screenCenterRay.direction * (CameraDistance() + rayOffset);
-
-        CombatData cd = new CombatData(_input.look, _cameraControl.CinemachineCameraTarget.transform.rotation, _input.aim || alwaysAim,
-                                       _shoot && _input.aim || _shoot && _weapons.meleeWeapon != null || alwaysReady,
-                                       _pressed, _released, screenCenterRay);
-
-        if (_weapons.rangedWeapon != null && !_weapons.rangedWeapon.automatic) _shoot = false;
-        if (_pressed) Debug.Log("PRESSED");
-        if (_released) Debug.Log("RELEASED");
-        _pressed = _released = false;
-
-        return cd;
-    }
-
-
-    private float CameraDistance()
-    {
-        if (_aimVirtualCamera.Priority == 20)
-            return _aimVirtualCamera.GetComponent<CinemachineThirdPersonFollow>().CameraDistance;
-        else if (_meleeVirtualCamera.Priority == 20)
-            return _meleeVirtualCamera.GetComponent<CinemachineThirdPersonFollow>().CameraDistance;
-        else
-            return _cameraControl.GetCameraDistance();
-    }
-
-
-    [Replicate]
-    private void Attack(CombatData cd, ReplicateState state = ReplicateState.Invalid, Channel channel = Channel.Unreliable)
-    {
-        if (!base.IsOwner)
+        /// <summary>Authoritative combat state sent by the server.</summary>
+        public struct ReconcileData : IReconcileData
         {
-            // Created = data actually sent by the controller; otherwise reuse the last known data
-            if ((state & ReplicateState.Created) != 0)
-                _lastCombatData = cd;
-            else
+            public Vector3 AimTargetPosition;
+
+            public ReconcileData(Vector3 aimTargetPosition)
             {
-                uint tick = cd.GetTick();
-                cd = _lastCombatData;
-                cd.SetTick(tick);
+                AimTargetPosition = aimTargetPosition;
+                _tick = 0;
             }
+
+            private uint _tick;
+            public void Dispose() { }
+            public uint GetTick() => _tick;
+            public void SetTick(uint value) => _tick = value;
         }
-        AttackWithData(cd, (float)base.TimeManager.TickDelta, state);
-    }
-    #endregion
+        #endregion
 
-    #region CombatLogic
-    private void AttackWithData(CombatData cd, float delta, ReplicateState state = ReplicateState.Invalid)
-    {
-        bool replaying = (state & ReplicateState.Replayed) != 0;
-
-        // update mouse aim target in world
-        Vector3 mouseWorldPosition = Vector3.zero;
-        RaycastHit raycastHit = new RaycastHit();
-        if (Physics.Raycast(cd.ScreenCenterRay, out raycastHit, 999f, _aimColliderLayerMask))
+        #region Lifecycle
+        private void Awake()
         {
-            _aimTarget.position = raycastHit.point;
-            mouseWorldPosition = raycastHit.point;
+            _strafeSync.OnChange += OnStrafeSynced;
+
+            _input = GetComponent<InputController>();
+            _state = GetComponent<PlayerState>();
+            _animation = GetComponent<PlayerAnimation>();
+            _attributes = GetComponent<PlayerAttributes>();
+            _cameraControl = GetComponent<PlayerCameraControl>();
+            _weapons = GetComponent<PlayerWeapons>();
+
+            _chestConstraint = _meleeRig.transform.Find("ChestPosition").GetComponent<TwoBoneIKConstraint>();
+            _aimLayerMask = LayerMask.GetMask("Default", "PlayerBody", "PlayerHead");
         }
 
-        if (replaying) return;
-
-        // align player rotation to camera
-        if (_state.Is(RangedState.Aiming, RangedState.Shooting)
-            || _state.Is(MeleeState.Readied, MeleeState.Striking, MeleeState.Blocking))
+        public override void OnStartNetwork()
         {
-            Vector3 worldAimTarget = mouseWorldPosition;
-            worldAimTarget.y = transform.position.y;
-            Vector3 aimDirection = (worldAimTarget - transform.position).normalized;
-            transform.forward = Vector3.Lerp(transform.forward, aimDirection, delta * 20f);
+            base.OnStartNetwork();
+            base.TimeManager.OnTick += TimeManager_OnTick;
         }
 
-        //Debug.Log($"{ad.CameraRotation} {_meleeStrikePivot.rotation}");
-        _meleeStrikePivot.transform.rotation = cd.CameraRotation;
-
-        // transition animations
-        TransitionRigs(delta);
-        _animation.TransitionLayerWeight(2, _aimLayerTargetWeight, delta);
-
-        // ranged logic
-        if (_state.Is(RangedState.Inactive, RangedState.Holstered)) ExitRangedCombat(delta);
-        else RangedCombat(cd, delta, raycastHit);
-
-        // melee logic
-        if (_state.Is(MeleeState.Inactive, MeleeState.Sheathed)) ExitMeleeCombat(delta);
-        else MeleeCombat(cd, delta);
-    }
-
-    private void TransitionRigs(float delta)
-    {
-        _headRig.weight = Mathf.Lerp(_headRig.weight, _headRigTargetWeight, 25f * delta);
-        _aimRig.weight = Mathf.Lerp(_aimRig.weight, _aimRigTargetWeight, 25f * delta);
-        _meleeRig.weight = Mathf.Lerp(_meleeRig.weight, _meleeRigTargetWeight, 25f * delta);
-    }
-    #endregion
-
-    #region RangedLogic
-    private void RangedCombat(CombatData cd, float delta, RaycastHit raycastHit)
-    {
-        EnterRangedCombat(delta);
-        //if (_handRig.weight < 1f) _handRig.weight = Mathf.Lerp(_handRig.weight, 1f, 25f * delta);
-
-        if (base.IsOwner) SetStrafe(cd.Aim);
-        _weapons.rangedWeapon.RecoverTime(delta);
-
-        _state.Set(!cd.Aim ? RangedState.Drawn : cd.Shoot ? RangedState.Shooting : RangedState.Aiming);
-
-        if (_state.Is(RangedState.Aiming, RangedState.Shooting))
+        public override void OnStopNetwork()
         {
-            if (base.IsOwner) _aimVirtualCamera.Priority = 20;
-            _aimLayerTargetWeight = 1f;
-            SwapRangedRigs(true);
-            SetSensitivity(_aimSensitivity);
+            base.OnStopNetwork();
+            base.TimeManager.OnTick -= TimeManager_OnTick;
         }
-        else
+
+        public override void OnStartClient()
         {
-            if (base.IsOwner) _aimVirtualCamera.Priority = 5;
-            _aimLayerTargetWeight = 0f;
-            SwapRangedRigs(false);
-            SetSensitivity(_normalSensitivity);
+            base.OnStartClient();
+            if (_aimCamera != null) return;
+
+            _aimCamera = GameObject.FindGameObjectWithTag(AimCameraTag).GetComponent<CinemachineCamera>();
+            _meleeCamera = GameObject.FindGameObjectWithTag(MeleeCameraTag).GetComponent<CinemachineCamera>();
+            _aimCameraFollow = _aimCamera.GetComponent<CinemachineThirdPersonFollow>();
+            _meleeCameraFollow = _meleeCamera.GetComponent<CinemachineThirdPersonFollow>();
+
+            if (base.IsOwner)
+            {
+                _aimCamera.Follow = _cameraControl.CameraTarget;
+                _meleeCamera.Follow = _cameraControl.CameraTarget;
+            }
+
+            // The aim target lives in world space so it is not dragged along by the body.
+            _aimTarget.parent.SetParent(null, true);
         }
 
-        if (_state.Is(RangedState.Shooting))
-            _weapons.rangedWeapon.UpdateFiring(raycastHit, _attributes.size, delta);
-        else _weapons.rangedWeapon.StopFiring();
-    }
-
-    private void EnterRangedCombat(float delta)
-    {
-        if (_handRig.weight < 1f) _handRig.weight = Mathf.Lerp(_handRig.weight, 1f, 25f * delta);
-    }
-
-    private void ExitRangedCombat(float delta)
-    {
-        if (_handRig.weight > 0f) _handRig.weight = Mathf.Lerp(_handRig.weight, 0f, 25f * delta);
-        if (base.IsOwner && _aimVirtualCamera.Priority > 5) _aimVirtualCamera.Priority = 5;
-    }
-
-    public void SetSensitivity(float newSensitivity) => _cameraControl.Sensitivity = newSensitivity;
-
-    private void SwapRangedRigs(bool aim)
-    {
-        _headRigTargetWeight = aim ? 0f : 1f;
-        _aimRigTargetWeight = aim ? 1f : 0f;
-        _weapons.SetPoseRig(!aim);
-    }
-    #endregion
-
-    #region MeleeLogic
-    private void MeleeCombat(CombatData cd, float delta)
-    {
-        EnterMeleeCombat(delta);
-        //if (base.IsOwner && _meleeVirtualCamera.Priority < 20) _meleeVirtualCamera.Priority = 20;
-
-        strikeCooldown = Mathf.Clamp(strikeCooldown - delta, 0f, .5f);
-        readyCooldown = Mathf.Clamp(readyCooldown - delta, 0f, 1f / 3f);
-        _weapons.meleeWeapon.RecoverTime(delta);
-        if (!alwaysStrike && _state.Is(MeleeState.Striking) && strikeCooldown == 0) _state.Set(MeleeState.Drawn);
-
-        if (base.IsOwner) SetStrafe(!_state.Is(MeleeState.Drawn));
-
-        if (alwaysStrike) _state.Set(MeleeState.Striking);
-
-        if (_state.Is(MeleeState.Drawn))
-            strikeDir = Vector2.zero;
-
-        // state transitioning
-        if (cd.Aim && _state.Is(MeleeState.Drawn, MeleeState.Readied))
+        private void OnDestroy()
         {
-            if (base.IsServerInitialized) _weapons.meleeWeapon.canBlock = true;
-            _state.Set(MeleeState.Blocking);
-            firstReady = true;
+            // The aim container was detached in OnStartClient, so it isn't destroyed with the player.
+            if (_aimTarget != null && _aimTarget.parent != null && !_aimTarget.parent.IsChildOf(transform))
+                Destroy(_aimTarget.parent.gameObject);
         }
 
-        if (!cd.Aim && _state.Is(MeleeState.Blocking))
+        private void Update()
         {
-            if (base.IsServerInitialized) _weapons.meleeWeapon.canBlock = false;
-            _state.Set(MeleeState.Drawn);
-            firstReady = true;
-        }
+            if (!base.IsOwner) return;
 
-        if (cd.Shoot && _state.Is(MeleeState.Drawn) && _weapons.meleeWeapon.ready)
+            // Latch trigger edges between ticks so short clicks are never missed.
+            bool held = _input.Shoot;
+            if (!held && _triggerHeld) _releaseQueued = true;
+
+            RaycastWeapon ranged = _weapons.RangedWeapon;
+            if (ranged != null && !ranged.IsAutomatic)
+            {
+                if (held && !_triggerHeld) _shootQueued = true;   // one shot per press
+            }
+            else _shootQueued = held;
+
+            _triggerHeld = held;
+        }
+        #endregion
+
+        #region Prediction
+        private void TimeManager_OnTick()
         {
-            _state.Set(MeleeState.Readied);
-            firstReady = true;
+            Attack(BuildCombatData());
+            CreateReconcile();   // called on every instance; only the server actually sends it
         }
 
-        if (cd.Released && _state.Is(MeleeState.Readied))
+        private CombatData BuildCombatData()
+        {
+            if (!base.IsOwner) return default;
+
+            Ray ray = Camera.main.ScreenPointToRay(new Vector2(Screen.width * 0.5f, Screen.height * 0.5f));
+            ray.origin += ray.direction * (ActiveCameraDistance() + _rayOffset);
+
+            bool aim = _input.Aim || _debugAlwaysAim;
+            bool hasMelee = _weapons.MeleeWeapon != null;
+            bool shoot = (_shootQueued && (aim || hasMelee)) || _debugAlwaysReady;
+
+            var data = new CombatData(_input.Look, _cameraControl.CameraTarget.rotation, aim, shoot, _releaseQueued, ray);
+
+            if (_weapons.RangedWeapon != null && !_weapons.RangedWeapon.IsAutomatic) _shootQueued = false;
+            _releaseQueued = false;
+            return data;
+        }
+
+        public override void CreateReconcile() => Reconciliation(new ReconcileData(_aimTarget.position));
+
+        [Reconcile]
+        private void Reconciliation(ReconcileData data, Channel channel = Channel.Unreliable) =>
+            _aimTarget.position = data.AimTargetPosition;
+
+        [Replicate]
+        private void Attack(CombatData data, ReplicateState state = ReplicateState.Invalid, Channel channel = Channel.Unreliable)
+        {
+            if (!base.IsOwner)
+            {
+                // Without fresh input from the owner, predict that it keeps doing the same thing.
+                if ((state & ReplicateState.Created) != 0) _lastCombatData = data;
+                else
+                {
+                    uint tick = data.GetTick();
+                    data = _lastCombatData;
+                    data.SetTick(tick);
+                }
+            }
+
+            Simulate(data, (float)base.TimeManager.TickDelta, (state & ReplicateState.Replayed) != 0);
+        }
+
+        private float ActiveCameraDistance()
+        {
+            if (_aimCamera.Priority == ActiveCameraPriority) return _aimCameraFollow.CameraDistance;
+            if (_meleeCamera.Priority == ActiveCameraPriority) return _meleeCameraFollow.CameraDistance;
+            return _cameraControl.FollowDistance;
+        }
+        #endregion
+
+        #region Shared simulation
+        private void Simulate(CombatData data, float delta, bool replaying)
+        {
+            bool hasAimPoint = Physics.Raycast(data.ScreenCenterRay, out RaycastHit hit, AimRayLength, _aimLayerMask);
+            if (hasAimPoint) _aimTarget.position = hit.point;
+
+            // Everything below is either visual or must only happen once per tick.
+            if (replaying) return;
+
+            if (_state.Is(RangedState.Aiming, RangedState.Shooting)
+                || _state.Is(MeleeState.Readied, MeleeState.Striking, MeleeState.Blocking))
+                FaceAimPoint(hasAimPoint ? hit.point : Vector3.zero, delta);
+
+            _meleeStrikePivot.transform.rotation = data.CameraRotation;
+
+            BlendRigs(delta);
+            _animation.TransitionLayerWeight(AimAnimatorLayer, _aimLayerTarget, delta);
+
+            if (_state.Is(RangedState.Inactive, RangedState.Holstered)) ExitRangedCombat(delta);
+            else RangedCombat(data, delta, hit);
+
+            if (_state.Is(MeleeState.Inactive, MeleeState.Sheathed)) ExitMeleeCombat();
+            else MeleeCombat(data, delta);
+        }
+
+        private void FaceAimPoint(Vector3 aimPoint, float delta)
+        {
+            Vector3 flatTarget = new Vector3(aimPoint.x, transform.position.y, aimPoint.z);
+            Vector3 direction = (flatTarget - transform.position).normalized;
+            transform.forward = Vector3.Lerp(transform.forward, direction, delta * BodyTurnSpeed);
+        }
+
+        private void BlendRigs(float delta)
+        {
+            float t = RigBlendSpeed * delta;
+            _headRig.weight = Mathf.Lerp(_headRig.weight, _headRigTarget, t);
+            _aimRig.weight = Mathf.Lerp(_aimRig.weight, _aimRigTarget, t);
+            _meleeRig.weight = Mathf.Lerp(_meleeRig.weight, _meleeRigTarget, t);
+        }
+
+        private void SetStrafing(bool value)
+        {
+            if (IsStrafing == value) return;
+            IsStrafing = value;
+            if (base.IsServerInitialized) _strafeSync.Value = value;
+            else if (base.IsOwner) ServerRpcSetStrafing(value);
+        }
+
+        [ServerRpc]
+        private void ServerRpcSetStrafing(bool value)
+        {
+            IsStrafing = value;
+            _strafeSync.Value = value;
+        }
+
+        private void OnStrafeSynced(bool previous, bool next, bool asServer)
+        {
+            IsStrafing = next;
+            if (!base.IsOwner) SetRangedRigs(next);
+        }
+
+        private void SetCameraPriority(CinemachineCamera camera, bool active)
+        {
+            if (base.IsOwner) camera.Priority = active ? ActiveCameraPriority : InactiveCameraPriority;
+        }
+        #endregion
+
+        #region Ranged
+        private void RangedCombat(CombatData data, float delta, RaycastHit hit)
+        {
+            RaycastWeapon weapon = _weapons.RangedWeapon;
+            _handRig.weight = Mathf.Lerp(_handRig.weight, 1f, RigBlendSpeed * delta);
+
+            if (base.IsOwner) SetStrafing(data.Aim);
+            weapon.RecoverTime(delta);
+
+            _state.Set(!data.Aim ? RangedState.Drawn : data.Shoot ? RangedState.Shooting : RangedState.Aiming);
+
+            bool aiming = _state.Is(RangedState.Aiming, RangedState.Shooting);
+            SetCameraPriority(_aimCamera, aiming);
+            _aimLayerTarget = aiming ? 1f : 0f;
+            SetRangedRigs(aiming);
+            if (base.IsOwner) _cameraControl.Sensitivity = aiming ? _aimSensitivity : _normalSensitivity;
+
+            if (_state.Is(RangedState.Shooting)) weapon.UpdateFiring(hit, _attributes.Size, delta);
+            else weapon.StopFiring();
+        }
+
+        private void ExitRangedCombat(float delta)
+        {
+            _handRig.weight = Mathf.Lerp(_handRig.weight, 0f, RigBlendSpeed * delta);
+            if (base.IsOwner && _aimCamera.Priority > InactiveCameraPriority) _aimCamera.Priority = InactiveCameraPriority;
+        }
+
+        private void SetRangedRigs(bool aiming)
+        {
+            _headRigTarget = aiming ? 0f : 1f;
+            _aimRigTarget = aiming ? 1f : 0f;
+            _weapons.SetPoseRig(!aiming);
+        }
+        #endregion
+
+        #region Melee
+        private void MeleeCombat(CombatData data, float delta)
+        {
+            MeleeWeapon weapon = _weapons.MeleeWeapon;
+            SetCameraPriority(_meleeCamera, true);
+
+            _strikeTimer = Mathf.Max(0f, _strikeTimer - delta);
+            _directionCooldown = Mathf.Max(0f, _directionCooldown - delta);
+            weapon.RecoverTime(delta);
+
+            if (_debugAlwaysStrike) _state.Set(MeleeState.Striking);
+            else if (_state.Is(MeleeState.Striking) && _strikeTimer <= 0f) _state.Set(MeleeState.Drawn);
+
+            if (base.IsOwner) SetStrafing(!_state.Is(MeleeState.Drawn));
+            if (_state.Is(MeleeState.Drawn)) _strikeDirection = Vector2.zero;
+
+            UpdateMeleeState(data, weapon);
+
+            if (!_state.Is(MeleeState.Striking)) weapon.CanHit = weapon.CanDamage = false;
+
+            UpdateMeleeRigs(delta);
+            UpdateMeleeAnimation(data, delta);
+        }
+
+        private void UpdateMeleeState(CombatData data, MeleeWeapon weapon)
+        {
+            if (data.Aim && _state.Is(MeleeState.Drawn, MeleeState.Readied))
+            {
+                if (base.IsServerInitialized) weapon.CanBlock = true;
+                _state.Set(MeleeState.Blocking);
+                _firstDirectionChange = true;
+            }
+
+            if (!data.Aim && _state.Is(MeleeState.Blocking))
+            {
+                if (base.IsServerInitialized) weapon.CanBlock = false;
+                _state.Set(MeleeState.Drawn);
+                _firstDirectionChange = true;
+            }
+
+            if (data.Shoot && _state.Is(MeleeState.Drawn) && weapon.IsReady)
+            {
+                _state.Set(MeleeState.Readied);
+                _firstDirectionChange = true;
+            }
+
+            if (data.Released && _state.Is(MeleeState.Readied)) BeginStrike(weapon);
+        }
+
+        private void BeginStrike(MeleeWeapon weapon)
         {
             _state.Set(MeleeState.Striking);
-            _strikeTime = 0f;
-            _latencyEstimate = base.TimeManager.RoundTripTime;
-            _animation.SetStrikeSpeed(base.IsOwner ? 0f : 1f);
-            Debug.Log($"LATENCY ESTIMATE {_latencyEstimate}");
+            _strikeTimer = _strikeDuration;
 
-            _weapons.meleeWeapon.SetCooldown();
-            strikeCooldown = .5f;
-            _weapons.meleeWeapon.canHit = true;
-            if (base.IsServerInitialized) _weapons.meleeWeapon.canDamage = true;
+            weapon.StartCooldown();
+            weapon.CanHit = true;
+            if (base.IsServerInitialized) weapon.CanDamage = true;
+            weapon.PlaySwingSound();
 
-            _weapons.meleeWeapon.SwingAudioEffect();
-            _animation.SetStrike(strikeDir);
-            strikeDir = Vector2.zero;
-            firstReady = true;
+            // Only the owner runs ahead of the server, so only the owner slows its swing down.
+            if (base.IsOwner && !base.IsServerInitialized)
+            {
+                float delay = StrikeTimingCompensator.EstimateServerDelay(base.TimeManager.RoundTripTime,
+                                                                          base.TimeManager.TickDelta,
+                                                                          _serverInputBufferTicks);
+                _strikeCompensator.Begin(delay);
+            }
+            else _strikeCompensator.Reset();
+
+            _animation.SetStrikeSpeed(_strikeCompensator.IsCompensating ? 0f : 1f);
+            _animation.SetStrike(_strikeDirection);
+            _strikeDirection = Vector2.zero;
+            _firstDirectionChange = true;
         }
 
-
-        if (!_state.Is(MeleeState.Striking))
-            _weapons.meleeWeapon.canHit = _weapons.meleeWeapon.canDamage = false;
-
-        // animator and rigging
-        var chestPositionRigComponent = _meleeRig.transform.Find("ChestPosition").GetComponent<TwoBoneIKConstraint>();
-        chestPositionRigComponent.weight = Mathf.Lerp(chestPositionRigComponent.weight,
-                                                      controlChest ? 1f : _state.Is(MeleeState.Striking) ? 1f : 0f,
-                                                      20 * delta);
-
-        _aimLayerTargetWeight = _state.Is(MeleeState.Drawn) ? 0f : 1f;
-        SwapMeleeRigs(!_state.Is(MeleeState.Drawn));
-        StrikingRigConstraints();
-
-        var animatorState = _animation.GetStateInfo("Melee Weapon");
-
-        // state-specific logic
-        switch (_state.GetMeleeState())
+        private void UpdateMeleeRigs(float delta)
         {
-            case MeleeState.Readied:
-                if (!animatorState.IsName("Ready")) _animation.SetReady();
-                UpdateStrikeDir(cd.Look);
-                _readyTransition = Mathf.Lerp(_readyTransition, 1f, 15f * delta);
-                _animation.SetStrikeDirection(_readyTransition * (_readyTransition <= 0f ? -_prevStrikeDir : strikeDir));
-                break;
+            bool striking = _state.Is(MeleeState.Striking);
+            bool stance = !_state.Is(MeleeState.Drawn);
 
-            case MeleeState.Striking:
-                if (base.IsOwner)
+            _chestConstraint.weight = Mathf.Lerp(_chestConstraint.weight, _debugControlChest || striking ? 1f : 0f,
+                                                 ConstraintBlendSpeed * delta);
+
+            _aimLayerTarget = stance ? 1f : 0f;
+            _headRigTarget = stance ? 0f : 1f;
+            _meleeRigTarget = stance ? 1f : 0f;
+
+            // Hand the weapon over from the "ready" pivots to the "strike" pivots.
+            float t = ConstraintBlendSpeed * delta;
+            if (striking)
+            {
+                _offhandReadyConstraint.weight = Mathf.Lerp(_offhandReadyConstraint.weight, 0f, t);
+                _meleeReadyConstraint.weight = Mathf.Lerp(_meleeReadyConstraint.weight, 0f, t);
+                _offhandStrikeConstraint.weight = Mathf.Lerp(_offhandStrikeConstraint.weight, 1f, t);
+                _meleeStrikeConstraint.weight = Mathf.Lerp(_meleeStrikeConstraint.weight, 1f, t);
+            }
+            else
+            {
+                _offhandReadyConstraint.weight = 1f;
+                _meleeReadyConstraint.weight = 1f;
+                _offhandStrikeConstraint.weight = Mathf.Lerp(_offhandStrikeConstraint.weight, 0f, t);
+                _meleeStrikeConstraint.weight = Mathf.Lerp(_meleeStrikeConstraint.weight, 0f, t);
+            }
+        }
+
+        private void UpdateMeleeAnimation(CombatData data, float delta)
+        {
+            AnimatorStateInfo animatorState = _animation.GetStateInfo(MeleeAnimatorLayer);
+
+            switch (_state.Melee)
+            {
+                case MeleeState.Readied:
+                    if (!animatorState.IsName("Ready")) _animation.SetReady();
+                    UpdateStrikeDirection(data.Look, delta);
+                    break;
+
+                case MeleeState.Blocking:
+                    if (!animatorState.IsName("Block")) _animation.SetBlock();
+                    UpdateStrikeDirection(data.Look, delta);
+                    break;
+
+                case MeleeState.Striking:
+                    _animation.SetStrikeSpeed(_strikeCompensator.Step(delta));
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// Picks the strike/block direction from mouse movement: a decisive flick left/right/up/down
+        /// switches direction. The first change after readying needs less movement.
+        /// </summary>
+        private void UpdateStrikeDirection(Vector2 look, float delta)
+        {
+            _previousStrikeDirection = _strikeDirection;
+
+            if (!_debugAlwaysReady)
+            {
+                // Strike from the right by default.
+                if (look == Vector2.zero && _strikeDirection == Vector2.zero) _strikeDirection = Vector2.right;
+
+                float threshold = _firstDirectionChange ? 1f : 3f;
+                if (look != Vector2.zero && look.magnitude > threshold && _directionCooldown <= 0f)
                 {
-                    _strikeTime += delta;
-                    float strikeSpeed = Mathf.Min(1f, Mathf.Pow(1000 * _strikeTime / (_latencyEstimate + 25), 2f));
-                    _animation.SetStrikeSpeed(strikeSpeed);
+                    Vector2 normalized = look.normalized;
+                    float horizontalThreshold = threshold + (_firstDirectionChange ? 0f : 1f);
+                    if (Mathf.Abs(normalized.x) > 0.9f && look.magnitude > horizontalThreshold)
+                        _strikeDirection = Mathf.Sign(look.x) * Vector2.right;
+                    else if (Mathf.Abs(normalized.y) > 0.9f)
+                        _strikeDirection = Mathf.Sign(look.y) * Vector2.up;
+
+                    _directionCooldown = _directionChangeCooldown;
+                    _firstDirectionChange = false;
                 }
-                else _animation.SetStrikeSpeed(1f);
-                //if (alwaysStrike || strikeDir == Vector2.zero) break;
 
-                //if (base.IsServerInitialized) _weapons.meleeWeapon.canHit = true;
-                //_weapons.meleeWeapon.SwingAudioEffect();
-                //_animation.SetStrike(strikeDir);
-                //strikeDir = Vector2.zero;
+                if (_strikeDirection != _previousStrikeDirection)
+                    _readyTransition = _previousStrikeDirection == Vector2.zero ? 0f : -1f;
+            }
 
-                break;
-
-            case MeleeState.Blocking:
-                if (!animatorState.IsName("Block")) _animation.SetBlock();
-                UpdateStrikeDir(cd.Look);
-                _readyTransition = Mathf.Lerp(_readyTransition, 1f, 15f * delta);
-                _animation.SetStrikeDirection(_readyTransition * (_readyTransition <= 0f ? -_prevStrikeDir : strikeDir));
-                break;
+            // Blend through neutral when switching sides so the weapon swings across the body.
+            _readyTransition = Mathf.Lerp(_readyTransition, 1f, ReadyTransitionSpeed * delta);
+            Vector2 shown = _readyTransition <= 0f ? -_previousStrikeDirection : _strikeDirection;
+            _animation.SetStrikeDirection(_readyTransition * shown);
         }
-    }
 
-    private void EnterMeleeCombat(float delta)
-    {
-        if (base.IsOwner && _meleeVirtualCamera.Priority < 20) _meleeVirtualCamera.Priority = 20;
-    }
-
-    private void ExitMeleeCombat(float delta)
-    {
-        SwapMeleeRigs(false);
-        if (base.IsOwner && _meleeVirtualCamera.Priority > 5) _meleeVirtualCamera.Priority = 5;
-    }
-
-    private void UpdateStrikeDir(Vector2 lookDirection)
-    {
-        _prevStrikeDir = strikeDir;
-        if (alwaysReady) return;
-
-        // strike from the right be default
-        if (lookDirection == Vector2.zero && strikeDir == Vector2.zero)
-            strikeDir = Vector2.right;
-        float threshold = firstReady ? 1f : 3f;
-
-        // change direction threshold
-        if (lookDirection != Vector2.zero && lookDirection.magnitude > threshold && readyCooldown == 0)
+        private void ExitMeleeCombat()
         {
-            Vector2 lookNormalized = lookDirection.normalized;
-            if (Mathf.Abs(lookNormalized.x) > .9 && lookDirection.magnitude > threshold + (firstReady ? 0f : 1f))
-                strikeDir = Mathf.Sign(lookDirection.x) * Vector2.right;
-            else if (Mathf.Abs(lookNormalized.y) > .9)
-                strikeDir = Mathf.Sign(lookDirection.y) * Vector2.up;
-            readyCooldown = 1f / 3f;
-            firstReady = false;
+            _headRigTarget = 1f;
+            _meleeRigTarget = 0f;
+            if (base.IsOwner && _meleeCamera.Priority > InactiveCameraPriority) _meleeCamera.Priority = InactiveCameraPriority;
         }
-
-        // update animator variable
-        if (strikeDir != _prevStrikeDir)
-            _readyTransition = _prevStrikeDir == Vector2.zero ? 0f : -1f;
+        #endregion
     }
-
-    private void SwapMeleeRigs(bool shoot)
-    {
-        _headRigTargetWeight = shoot ? 0f : 1f;
-        _meleeRigTargetWeight = shoot ? 1f : 0f;
-    }
-
-    private void StrikingRigConstraints()
-    {
-        bool strike = _state.Is(MeleeState.Striking);
-        //_offhandReadyConstraint.weight = Mathf.Lerp(_offhandReadyConstraint.weight,
-        //                                            strike ? 0f : 1f, 20*(float)base.TimeManager.TickDelta);
-        //_meleeReadyConstraint.weight = Mathf.Lerp(_meleeReadyConstraint.weight,
-        //                                          strike ? 0f : 1f, 20 * (float)base.TimeManager.TickDelta);
-
-        //_offhandStrikeConstraint.weight = Mathf.Lerp(_offhandStrikeConstraint.weight,
-        //                                             strike ? 1f : 0f, 20 * (float)base.TimeManager.TickDelta);
-        //_meleeStrikeConstraint.weight = Mathf.Lerp(_meleeStrikeConstraint.weight,
-        //                                           strike ? 1f : 0f, 20 * (float)base.TimeManager.TickDelta);
-        if (strike)
-        {
-            _offhandReadyConstraint.weight = Mathf.Lerp(_offhandReadyConstraint.weight,
-                                                        0f, 20 * (float)base.TimeManager.TickDelta);
-            _meleeReadyConstraint.weight = Mathf.Lerp(_meleeReadyConstraint.weight,
-                                                      0f, 20 * (float)base.TimeManager.TickDelta);
-
-            _offhandStrikeConstraint.weight = Mathf.Lerp(_offhandStrikeConstraint.weight,
-                                                         1f, 20 * (float)base.TimeManager.TickDelta);
-            _meleeStrikeConstraint.weight = Mathf.Lerp(_meleeStrikeConstraint.weight,
-                                                       1f, 20 * (float)base.TimeManager.TickDelta);
-        }
-        else
-        {
-            _offhandReadyConstraint.weight = 1f;
-            _meleeReadyConstraint.weight = 1f;
-
-            _offhandStrikeConstraint.weight = Mathf.Lerp(_offhandStrikeConstraint.weight,
-                                                         0f, 20 * (float)base.TimeManager.TickDelta);
-            _meleeStrikeConstraint.weight = Mathf.Lerp(_meleeStrikeConstraint.weight,
-                                                       0f, 20 * (float)base.TimeManager.TickDelta);
-        }
-    }
-    #endregion
 }

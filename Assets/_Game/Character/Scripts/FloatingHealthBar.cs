@@ -1,47 +1,23 @@
 using FishNet.Object;
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
-public class FloatingHealthBar : NetworkBehaviour
+namespace AgaRPG.UI
 {
-    [SerializeField] private Slider _slider;
-    [SerializeField] private GameObject _mainCameraGO;
-
-    private bool _initialized;
-    private float _targetValue = 1;
-
-    private void Start()
+    /// <summary>World-space health bar above a player that faces the camera and eases to new values.</summary>
+    public class FloatingHealthBar : NetworkBehaviour
     {
-        Initialize();
-    }
+        [SerializeField] private Slider _slider;
+        [SerializeField] private float _smoothing = 6f;
 
-    public override void OnStartClient()
-    {
-        Initialize();
-        base.OnStartClient();
-    }
+        private float _targetValue = 1f;
 
-    private void Initialize()
-    {
-        if (!_initialized)
-            if (_mainCameraGO == null)
-                _mainCameraGO = GameObject.FindGameObjectWithTag("MainCamera");
-    }
+        public void UpdateHealthBar(float current, float max) => _targetValue = max > 0f ? current / max : 0f;
 
-
-    public void UpdateHealthBar(float currentValue, float maxValue)
-    {
-        _targetValue = currentValue / maxValue;
-    }
-
-    // Update is called once per frame
-    void Update()
-    {
-        if (_mainCameraGO == null)
-            _mainCameraGO = GameObject.FindGameObjectWithTag("MainCamera");
-        transform.rotation = _mainCameraGO.transform.rotation;
-        _slider.value = Mathf.Lerp(_slider.value, _targetValue, .1f);
+        private void LateUpdate()
+        {
+            Billboard.FaceMainCamera(transform);
+            _slider.value = Mathf.Lerp(_slider.value, _targetValue, 1f - Mathf.Exp(-_smoothing * Time.deltaTime));
+        }
     }
 }

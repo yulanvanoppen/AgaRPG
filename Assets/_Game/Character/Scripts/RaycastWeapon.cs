@@ -1,160 +1,193 @@
-using FishNet.Component.Animating;
+using AgaRPG.Player;
 using FishNet.Object;
 using UnityEngine;
+using UnityEngine.Serialization;
 
-public class RaycastWeapon : AbstractWeapon
+namespace AgaRPG.Combat
 {
-    public int fireRate = 7;
-    public bool automatic;
-    public ParticleSystem[] muzzleFlash;
-    public ParticleSystem hitEffect;
-    public TrailRenderer tracerEffect;
-    public Transform raycastOrigin;
-    public AudioClip shootAudioClip;
-    public AudioClip reloadAudioClip;
-
-    private bool _isFiring = false;
-    [HideInInspector] public float accumulatedTime;
-
-    private int _animIDShoot;
-    public AnimationClip handPositionClip;
-    [SerializeField] private Animator _animator;
-
-    public WeaponRecoil weaponRecoil;
-    [SerializeField] private Transform _weaponClip;
-
-    private int _arrowIndex = 0;
-    public float offset = 0.00975f;
-    public int clipSize;
-
-
-    public void Initialize()
+    /// <summary>
+    /// Hitscan weapon (the crossbows). Firing runs inside the predicted combat tick on every
+    /// machine that simulates the shooter; the server applies damage and relays cosmetic shot
+    /// effects to the other clients with a single RPC per shot.
+    /// </summary>
+    public class RaycastWeapon : AbstractWeapon
     {
-        _animIDShoot = Animator.StringToHash("Shoot");
-        weaponRecoil.Initialize();
-    }
+        [Header("Firing")]
+        [Tooltip("Shots per second")]
+        [FormerlySerializedAs("fireRate")]
+        [SerializeField] private int _fireRate = 7;
 
+        [Tooltip("Keep firing while the trigger is held")]
+        [FormerlySerializedAs("automatic")]
+        [SerializeField] private bool _automatic;
 
-    public void RecoverTime(float delta)
-    {
-        if (!_isFiring && accumulatedTime < 0) accumulatedTime += delta;
+        [Tooltip("Arrows per clip before reloading")]
+        [FormerlySerializedAs("clipSize")]
+        [SerializeField] private int _clipSize;
 
-        if (accumulatedTime > -.1f && _arrowIndex == -1) MoveClip();
-    }
+        [Tooltip("Reload time in seconds")]
+        [SerializeField] private float _reloadTime = 1f;
 
+        [Tooltip("Where shots and tracers originate")]
+        [FormerlySerializedAs("raycastOrigin")]
+        [SerializeField] private Transform _raycastOrigin;
 
-    public void UpdateFiring(RaycastHit raycastHit, float size, float delta)
-    {
-        _isFiring = true;
-        accumulatedTime += delta;
-        float fireInterval = 1f / fireRate;
-        while(accumulatedTime >= 0f && _arrowIndex >= 0)
+        [Header("Effects")]
+        [FormerlySerializedAs("muzzleFlash")]
+        [SerializeField] private ParticleSystem[] _muzzleFlash;
+
+        [FormerlySerializedAs("hitEffect")]
+        [SerializeField] private ParticleSystem _hitEffect;
+
+        [Tooltip("Purely cosmetic tracer; instantiated locally, never network spawned")]
+        [FormerlySerializedAs("tracerEffect")]
+        [SerializeField] private TrailRenderer _tracerEffect;
+
+        [SerializeField] private float _tracerLifetime = 0.5f;
+        [SerializeField] private float _missTracerLength = 100f;
+
+        [FormerlySerializedAs("shootAudioClip")]
+        [SerializeField] private AudioClip _shootAudioClip;
+
+        [FormerlySerializedAs("reloadAudioClip")]
+        [SerializeField] private AudioClip _reloadAudioClip;
+
+        [Header("Animation")]
+        [Tooltip("Hand pose clip applied to the player's grip override")]
+        [FormerlySerializedAs("handPositionClip")]
+        [SerializeField] private AnimationClip _handPositionClip;
+
+        [SerializeField] private Animator _animator;
+
+        [FormerlySerializedAs("weaponRecoil")]
+        [SerializeField] private WeaponRecoil _weaponRecoil;
+
+        [Header("Visible clip")]
+        [Tooltip("Arrow clip mesh that slides as arrows are fired")]
+        [SerializeField] private Transform _weaponClip;
+
+        [Tooltip("Distance the clip moves per arrow")]
+        [FormerlySerializedAs("offset")]
+        [SerializeField] private float _clipOffset = 0.00975f;
+
+        private static readonly int ShootId = Animator.StringToHash("Shoot");
+
+        /// <summary>Time budget for firing: negative while reloading or between shots.</summary>
+        private float _accumulatedTime;
+
+        /// <summary>Index of the next arrow, or -1 while the clip is empty and reloading.</summary>
+        private int _arrowIndex;
+        private bool _isFiring;
+
+        public bool IsAutomatic => _automatic;
+        public AnimationClip HandPositionClip => _handPositionClip;
+        public WeaponRecoil Recoil => _weaponRecoil;
+
+        public void Initialize() => _weaponRecoil.Initialize();
+
+        /// <summary>Advances the reload / fire-rate timer while not firing.</summary>
+        public void RecoverTime(float delta)
         {
-            FireArrow(raycastHit, size);
-            accumulatedTime -= fireInterval;
+            if (!_isFiring && _accumulatedTime < 0f) _accumulatedTime += delta;
+
+            // Slide the full clip back in shortly before the reload finishes.
+            if (_accumulatedTime > -0.1f && _arrowIndex == -1) AdvanceClip();
         }
 
-        if (_arrowIndex >= clipSize)
+        /// <summary>Fires as many arrows as the fire rate allows during this tick.</summary>
+        /// <param name="hit">Result of the aim raycast (distance 0 when nothing was hit).</param>
+        /// <param name="shooterSize">Size of the shooter, scales damage.</param>
+        /// <param name="delta">Tick duration.</param>
+        public void UpdateFiring(RaycastHit hit, float shooterSize, float delta)
         {
-            accumulatedTime = -1f;
-            _arrowIndex = -1;
-            weaponRecoil.ResetPattern();
-        }
+            _isFiring = true;
+            _accumulatedTime += delta;
 
-    }
-
-
-    private void MoveClip()
-    {
-        //Debug.Log("MOVING CLIP");
-        _arrowIndex += 1;
-        int multiplier = _arrowIndex == 0 ? -clipSize : _arrowIndex > 0 ? 1 : 0;
-        _weaponClip.position += multiplier * offset * _weaponClip.up;
-
-        if (_arrowIndex == 0) ReloadAudio();
-    }
-
-
-    private void FireArrow(RaycastHit raycastHit, float size)
-    {
-        //Debug.Log($"ANIMATOR {_networkAnimator}, ID {_animIDShoot}, RECOIL {_weaponRecoil}");
-        ShotAudio();
-        //_networkAnimator.SetTrigger(_animIDShoot);
-        _animator.SetTrigger(_animIDShoot);
-        weaponRecoil.Recoil();
-        MoveClip();
-
-
-
-        //Debug.Log($"OWNER {IsServer} {IsOwner}");
-
-        foreach (var particle in muzzleFlash)
-            particle.Emit(1);
-
-        var tracer = Instantiate(tracerEffect, raycastOrigin.position, Quaternion.identity);
-        base.Spawn(tracer.gameObject, base.Owner);
-        tracer.AddPosition(raycastOrigin.position);
-
-        if (raycastHit.distance > 0f)
-        {
-            ShotImpact(raycastHit.point, raycastHit.normal);
-
-            tracer.transform.position = raycastHit.point;
-        }
-
-        if (base.IsServerInitialized && accumulatedTime >= 0f)
-        {
-            Transform hitTransform = raycastHit.transform;
-
-            if (hitTransform != null && hitTransform.root.CompareTag("Player"))
+            float fireInterval = 1f / _fireRate;
+            while (_accumulatedTime >= 0f && _arrowIndex >= 0)
             {
-                PlayerAttributes otherPlayer = hitTransform.root.GetComponent<PlayerAttributes>();
-                float damageAmount = baseDamage * size;
-                if (hitTransform.gameObject.layer == LayerMask.NameToLayer("PlayerHead")) damageAmount *= 4f;
+                FireArrow(hit, shooterSize);
+                _accumulatedTime -= fireInterval;
+            }
 
-                otherPlayer.TakeDamage(damageAmount / otherPlayer.size, base.Owner);
+            if (_arrowIndex >= _clipSize)
+            {
+                _accumulatedTime = -_reloadTime;
+                _arrowIndex = -1;
+                _weaponRecoil.ResetPattern();
             }
         }
+
+        public void StopFiring() => _isFiring = false;
+
+        private void FireArrow(RaycastHit hit, float shooterSize)
+        {
+            _animator.SetTrigger(ShootId);
+            _weaponRecoil.Recoil();
+            AdvanceClip();
+            foreach (ParticleSystem particle in _muzzleFlash) particle.Emit(1);
+
+            bool hasHit = hit.distance > 0f;
+            Vector3 start = _raycastOrigin.position;
+            Vector3 end = hasHit ? hit.point : start + _raycastOrigin.forward * _missTracerLength;
+
+            // Cosmetics: the owner sees them immediately, the server relays them to everyone else.
+            if (base.IsOwner) PlayShotEffects(start, end, hit.normal, hasHit);
+            if (base.IsServerInitialized)
+            {
+                ObserversRpcShotFired(start, end, hit.normal, hasHit);
+                ApplyDamage(hit, shooterSize);
+            }
+        }
+
+        private void ApplyDamage(RaycastHit hit, float shooterSize)
+        {
+            Transform hitTransform = hit.transform;
+            if (hitTransform == null || !hitTransform.root.CompareTag("Player")) return;
+            if (!hitTransform.root.TryGetComponent(out PlayerAttributes target)) return;
+
+            float damage = BaseDamage * shooterSize;
+            if (hitTransform.gameObject.layer == LayerMask.NameToLayer("PlayerHead")) damage *= HeadshotMultiplier;
+            target.TakeDamage(damage / target.Size, base.Owner);
+        }
+
+        [ObserversRpc(ExcludeOwner = true)]
+        private void ObserversRpcShotFired(Vector3 start, Vector3 end, Vector3 normal, bool hasHit) =>
+            PlayShotEffects(start, end, normal, hasHit);
+
+        private void PlayShotEffects(Vector3 start, Vector3 end, Vector3 normal, bool hasHit)
+        {
+            AudioSource.PlayClipAtPoint(_shootAudioClip, start, 0.3f);
+
+            TrailRenderer tracer = Instantiate(_tracerEffect, start, Quaternion.identity);
+            tracer.AddPosition(start);
+            tracer.transform.position = end;
+            Destroy(tracer.gameObject, _tracerLifetime);
+
+            if (!hasHit) return;
+            _hitEffect.transform.SetPositionAndRotation(end, Quaternion.LookRotation(normal));
+            _hitEffect.Emit(1);
+        }
+
+        /// <summary>Moves the visible arrow clip by one arrow, or resets it after a reload.</summary>
+        private void AdvanceClip()
+        {
+            _arrowIndex++;
+            int multiplier = _arrowIndex == 0 ? -_clipSize : _arrowIndex > 0 ? 1 : 0;
+            _weaponClip.position += multiplier * _clipOffset * _weaponClip.up;
+
+            if (_arrowIndex == 0) PlayReloadSound();
+        }
+
+        private void PlayReloadSound()
+        {
+            if (base.IsOwner) PlayReloadClip();
+            if (base.IsServerInitialized) ObserversRpcReload();
+        }
+
+        [ObserversRpc(ExcludeOwner = true)]
+        private void ObserversRpcReload() => PlayReloadClip();
+
+        private void PlayReloadClip() => AudioSource.PlayClipAtPoint(_reloadAudioClip, _raycastOrigin.position, 0.6f);
     }
-
-
-    public void StopFiring() => _isFiring = false;
-
-
-    private void HitEffect(Vector3 position, Vector3 normal)
-    {
-        hitEffect.transform.position = position;
-        hitEffect.transform.forward = normal;
-        hitEffect.Emit(1);
-    }
-
-
-    private void ShotImpact(Vector3 position, Vector3 normal)
-    {
-        if (base.IsOwner) HitEffect(position, normal);
-        if (base.IsServerInitialized) ObserversRpcShotImpact(position, normal);
-    }
-
-    [ObserversRpc(ExcludeOwner = true)]
-    private void ObserversRpcShotImpact(Vector3 position, Vector3 normal) => HitEffect(position, normal);
-
-
-    private void ShotAudio ()
-    {
-        if (base.IsOwner) AudioSource.PlayClipAtPoint(shootAudioClip, raycastOrigin.position, .3f);
-        if (base.IsServerInitialized) ObserversRpcShotAudio();
-    }
-
-    [ObserversRpc(ExcludeOwner = true)]
-    private void ObserversRpcShotAudio() => AudioSource.PlayClipAtPoint(shootAudioClip, raycastOrigin.position, .3f);
-
-
-    private void ReloadAudio()
-    {
-        if (base.IsOwner) AudioSource.PlayClipAtPoint(reloadAudioClip, raycastOrigin.position, .6f);
-        if (base.IsServerInitialized) ObserversRpcReloadAudio();
-    }
-
-    [ObserversRpc(ExcludeOwner = true)]
-    private void ObserversRpcReloadAudio() => AudioSource.PlayClipAtPoint(reloadAudioClip, raycastOrigin.position, .6f);
 }

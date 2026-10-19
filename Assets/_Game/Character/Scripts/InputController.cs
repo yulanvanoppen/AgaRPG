@@ -1,120 +1,72 @@
-using System;
 using UnityEngine;
+using UnityEngine.Serialization;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
-using static UnityEngine.Rendering.DebugUI;
 #endif
 
-public class InputController : MonoBehaviour
+namespace AgaRPG.Player
 {
-	[Header("Character Input Values")]
-	public Vector2 move;
-	public Vector2 look;
-	public bool jump;
-	public bool sprint;
-    public bool aim;
-    public bool yield;
-	public bool damage;
-	public bool shoot;
+    /// <summary>
+    /// Receives <see cref="PlayerInput"/> "Send Messages" callbacks and exposes the current
+    /// input as read-only values. Only the owning client has its <c>PlayerInput</c> enabled,
+    /// so on every other instance all values stay at their defaults.
+    /// </summary>
+    public class InputController : MonoBehaviour
+    {
+        [Header("Movement")]
+        [FormerlySerializedAs("analogMovement")]
+        [SerializeField] private bool _analogMovement;
 
-    [Header("Movement Settings")]
-	public bool analogMovement;
+        [Header("Mouse Cursor")]
+        [FormerlySerializedAs("cursorLocked")]
+        [SerializeField] private bool _cursorLocked = true;
 
-	[Header("Mouse Cursor Settings")]
-	public bool cursorLocked = true;
-	public bool cursorInputForLook = true;
+        [FormerlySerializedAs("cursorInputForLook")]
+        [SerializeField] private bool _cursorInputForLook = true;
+
+        private bool _jumpPressed;
+
+        public Vector2 Move { get; private set; }
+        public Vector2 Look { get; private set; }
+        public bool Sprint { get; private set; }
+        public bool Aim { get; private set; }
+
+        /// <summary>True while the attack/shoot button is held.</summary>
+        public bool Shoot { get; private set; }
+
+        /// <summary>Whether <see cref="Move"/> comes from an analog stick (magnitude matters).</summary>
+        public bool AnalogMovement => _analogMovement;
+
+        /// <summary>Returns true once per jump press and clears the latch.</summary>
+        public bool ConsumeJump()
+        {
+            bool pressed = _jumpPressed;
+            _jumpPressed = false;
+            return pressed;
+        }
 
 #if ENABLE_INPUT_SYSTEM
-    public void OnMove(InputValue value)
-	{
-		MoveInput(value.Get<Vector2>());
-	}
+        // Message handlers: names must match the actions in the input action asset.
+        private void OnMove(InputValue value) => Move = value.Get<Vector2>();
 
-	public void OnLook(InputValue value)
-	{
-		if(cursorInputForLook)
-		{
-			LookInput(value.Get<Vector2>());
-		}
-	}
+        private void OnLook(InputValue value)
+        {
+            if (_cursorInputForLook) Look = value.Get<Vector2>();
+        }
 
-	public void OnJump(InputValue value)
-	{
-		JumpInput(value.isPressed);
-	}
+        private void OnJump(InputValue value)
+        {
+            if (value.isPressed) _jumpPressed = true;
+        }
 
-	public void OnSprint(InputValue value)
-	{
-		SprintInput(value.isPressed);
-	}
-
-    public void OnAim(InputValue value)
-    {
-        AimInput(value.isPressed);
-    }
-
-    public void OnYield(InputValue value)
-    {
-        YieldInput(value.isPressed);
-    }
-
-    public void OnDamage(InputValue value)
-    {
-        DamageInput(value.isPressed);
-    }
-    public void OnShoot(InputValue value)
-    {
-        ShootInput(value.isPressed);
-    }
+        private void OnSprint(InputValue value) => Sprint = value.isPressed;
+        private void OnAim(InputValue value) => Aim = value.isPressed;
+        private void OnShoot(InputValue value) => Shoot = value.isPressed;
 #endif
 
+        private void OnApplicationFocus(bool hasFocus) => SetCursorLocked(_cursorLocked);
 
-    public void MoveInput(Vector2 newMoveDirection)
-	{
-		move = newMoveDirection;
-	} 
-
-	public void LookInput(Vector2 newLookDirection)
-	{
-		look = newLookDirection;
-	}
-
-	public void JumpInput(bool newJumpState)
-	{
-		jump = newJumpState;
-	}
-
-	public void SprintInput(bool newSprintState)
-	{
-		sprint = newSprintState;
-	}
-
-    public void AimInput(bool newAimState)
-    {
-        aim = newAimState;
+        private static void SetCursorLocked(bool locked) =>
+            Cursor.lockState = locked ? CursorLockMode.Locked : CursorLockMode.None;
     }
-
-    public void YieldInput(bool newYieldState)
-    {
-        yield = newYieldState;
-    }
-
-    public void DamageInput(bool newDamageState)
-    {
-        damage = newDamageState;
-    }
-    private void ShootInput(bool newShootState)
-    {
-		shoot = newShootState;
-    }
-
-    private void OnApplicationFocus(bool hasFocus)
-	{
-		SetCursorState(cursorLocked);
-	}
-
-	private void SetCursorState(bool newState)
-	{
-		Cursor.lockState = newState ? CursorLockMode.Locked : CursorLockMode.None;
-	}
 }

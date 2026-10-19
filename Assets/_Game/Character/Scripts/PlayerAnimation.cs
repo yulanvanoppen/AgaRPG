@@ -1,176 +1,143 @@
-﻿using Unity.Cinemachine;
-using FishNet.Component.Animating;
+using AgaRPG.Combat;
 using FishNet.Object;
 using UnityEngine;
+using UnityEngine.Serialization;
 
-#if ENABLE_INPUT_SYSTEM
-using UnityEngine.InputSystem;
-#endif
-
-/* Note: animations are called via the controller for both the character and capsule using animator null checks
- */
-
-[RequireComponent(typeof(CharacterController))]
-public class PlayerAnimation : NetworkBehaviour
+namespace AgaRPG.Player
 {
-    public AudioClip LandingAudioClip;
-    public AudioClip[] FootstepAudioClips;
-    public AudioClip DeathAudioClip;
-    [Range(0, 1)] public float FootstepAudioVolume = 0.3f;
-    
-    // animation IDs
-    private int _animIDSpeed;
-    private int _animIDGrounded;
-    private int _animIDJump;
-    private int _animIDFreeFall;
-    private int _animIDMotionSpeed;
-    private int _animIDStrafe;
-    private int _animIDForward;
-    private int _animIDDeath;
-    private int _animIDRespawn;
-    private int _animIDStrikeDirX;
-    private int _animIDStrikeDirY;
-    private int _animIDStrikeRight;
-    private int _animIDStrikeLeft;
-    private int _animIDStrikeAbove;
-    private int _animIDStrikeBelow;
-    private int _animIDStrikeSpeed;
-    private int _animIDReady;
-    private int _animIDBlock;
-
-    // animator
-    private Animator _animator;
-    //private NetworkAnimator _networkAnimator;
-    [SerializeField] private Animator _rigController;
-    [SerializeField] private Animator _meleeController;
-
-    // controllers
-    private CharacterController _controller;
-    private PlayerCombat _aiming;
-
-
-    private void Awake()
+    /// <summary>
+    /// Thin wrapper around the character's animators: owns the parameter hashes and plays the
+    /// footstep / landing / death sounds raised by animation events.
+    /// </summary>
+    [RequireComponent(typeof(CharacterController))]
+    public class PlayerAnimation : NetworkBehaviour
     {
-        _animator = GetComponent<Animator>();
-        //_networkAnimator = GetComponent<NetworkAnimator>();
-        _controller  = GetComponent<CharacterController>();
-        _aiming = GetComponent<PlayerCombat>();
-        AssignAnimationIDs();
-    }
+        [Header("Audio")]
+        [FormerlySerializedAs("LandingAudioClip")]
+        [SerializeField] private AudioClip _landingClip;
 
-    private void AssignAnimationIDs()
-    {
-        _animIDSpeed = Animator.StringToHash("Speed");
-        _animIDGrounded = Animator.StringToHash("Grounded");
-        _animIDJump = Animator.StringToHash("Jump");
-        _animIDFreeFall = Animator.StringToHash("FreeFall");
-        _animIDMotionSpeed = Animator.StringToHash("MotionSpeed");
-        _animIDStrafe = Animator.StringToHash("Strafe");
-        _animIDForward = Animator.StringToHash("Forward");
-        _animIDDeath = Animator.StringToHash("Death");
-        _animIDRespawn = Animator.StringToHash("Respawn");
-        _animIDStrikeDirX = Animator.StringToHash("StrikeDirX");
-        _animIDStrikeDirY = Animator.StringToHash("StrikeDirY");
-        _animIDStrikeRight = Animator.StringToHash("StrikeRight");
-        _animIDStrikeLeft = Animator.StringToHash("StrikeLeft");
-        _animIDStrikeAbove = Animator.StringToHash("StrikeAbove");
-        _animIDStrikeBelow = Animator.StringToHash("StrikeBelow");
-        _animIDStrikeSpeed = Animator.StringToHash("StrikeSpeed");
-        _animIDReady = Animator.StringToHash("Ready");
-        _animIDBlock = Animator.StringToHash("Block");
-    }
+        [FormerlySerializedAs("FootstepAudioClips")]
+        [SerializeField] private AudioClip[] _footstepClips;
 
-    public void SetSpeed(float speed) => _animator.SetFloat(_animIDSpeed, speed);
+        [FormerlySerializedAs("DeathAudioClip")]
+        [SerializeField] private AudioClip _deathClip;
 
-    public void SetGrounded(bool grounded) =>  _animator.SetBool(_animIDGrounded, grounded);
+        [FormerlySerializedAs("FootstepAudioVolume")]
+        [Range(0, 1)]
+        [SerializeField] private float _footstepVolume = 0.3f;
 
-    public void SetJump(bool jump) => _animator.SetBool(_animIDJump, jump);
+        [Header("Animators")]
+        [Tooltip("Animator driving the melee weapon strike animations")]
+        [SerializeField] private Animator _meleeController;
 
-    public void SetFreeFall(bool freeFall) => _animator.SetBool(_animIDFreeFall, freeFall);
+        private static readonly int SpeedId = Animator.StringToHash("Speed");
+        private static readonly int GroundedId = Animator.StringToHash("Grounded");
+        private static readonly int JumpId = Animator.StringToHash("Jump");
+        private static readonly int FreeFallId = Animator.StringToHash("FreeFall");
+        private static readonly int MotionSpeedId = Animator.StringToHash("MotionSpeed");
+        private static readonly int StrafeId = Animator.StringToHash("Strafe");
+        private static readonly int ForwardId = Animator.StringToHash("Forward");
+        private static readonly int DeathId = Animator.StringToHash("Death");
+        private static readonly int RespawnId = Animator.StringToHash("Respawn");
+        private static readonly int StrikeDirXId = Animator.StringToHash("StrikeDirX");
+        private static readonly int StrikeDirYId = Animator.StringToHash("StrikeDirY");
+        private static readonly int StrikeRightId = Animator.StringToHash("StrikeRight");
+        private static readonly int StrikeLeftId = Animator.StringToHash("StrikeLeft");
+        private static readonly int StrikeAboveId = Animator.StringToHash("StrikeAbove");
+        private static readonly int StrikeBelowId = Animator.StringToHash("StrikeBelow");
+        private static readonly int StrikeSpeedId = Animator.StringToHash("StrikeSpeed");
+        private static readonly int ReadyId = Animator.StringToHash("Ready");
+        private static readonly int BlockId = Animator.StringToHash("Block");
 
-    public void SetMotionSpeed(float speed) => _animator.SetFloat(_animIDMotionSpeed, speed);
+        private const float AnimationEventWeightThreshold = 0.5f;
+        private const float LayerBlendSpeed = 25f;
 
-    public void SetForward(float speed) => _animator.SetFloat(_animIDForward, speed);
+        private Animator _animator;
+        private CharacterController _controller;
+        private PlayerCombat _combat;
 
-    public void SetStrafe(float speed) => _animator.SetFloat(_animIDStrafe, speed);
+        private void Awake()
+        {
+            _animator = GetComponent<Animator>();
+            _controller = GetComponent<CharacterController>();
+            _combat = GetComponent<PlayerCombat>();
+        }
 
-    //public void SetDeath() => _networkAnimator.SetTrigger(_animIDDeath);
-    public void SetDeath() => _animator.SetTrigger(_animIDDeath);
+        public void SetSpeed(float speed) => _animator.SetFloat(SpeedId, speed);
+        public void SetGrounded(bool grounded) => _animator.SetBool(GroundedId, grounded);
+        public void SetJump(bool jump) => _animator.SetBool(JumpId, jump);
+        public void SetFreeFall(bool freeFall) => _animator.SetBool(FreeFallId, freeFall);
+        public void SetMotionSpeed(float speed) => _animator.SetFloat(MotionSpeedId, speed);
+        public void SetForward(float speed) => _animator.SetFloat(ForwardId, speed);
+        public void SetStrafe(float speed) => _animator.SetFloat(StrafeId, speed);
+        public void SetDeath() => _animator.SetTrigger(DeathId);
+        public void SetRespawn(bool respawned) => _animator.SetBool(RespawnId, respawned);
+        public void SetReady() => _animator.SetTrigger(ReadyId);
+        public void SetBlock() => _animator.SetTrigger(BlockId);
 
-    public void SetRespawn(bool respawned) => _animator.SetBool(_animIDRespawn, respawned);
+        public void SetStrikeDirection(Vector2 strikeDirection)
+        {
+            _animator.SetFloat(StrikeDirXId, strikeDirection.x);
+            _animator.SetFloat(StrikeDirYId, strikeDirection.y);
+        }
 
-    public void SetStrikeDirection(Vector2 strikeDirection)
-    {
-        _animator.SetFloat(_animIDStrikeDirX, strikeDirection.x);
-        _animator.SetFloat(_animIDStrikeDirY, strikeDirection.y);
-    }
+        /// <summary>Triggers the strike animation that matches a (cardinal) strike direction.</summary>
+        public void SetStrike(Vector2 strikeDirection)
+        {
+            if (strikeDirection == Vector2.zero) return;
 
-    public void SetStrike(Vector2 strikeDirection)
-    {
-        Debug.Log($"Strike from direction {strikeDirection}");
-        if (strikeDirection == Vector2.zero) return;
+            int trigger = StrikeRightId;
+            if (strikeDirection == Vector2.left) trigger = StrikeLeftId;
+            else if (strikeDirection == Vector2.down) trigger = StrikeAboveId;
+            else if (strikeDirection == Vector2.up) trigger = StrikeBelowId;
 
-        int animID = _animIDStrikeRight;
-        if (strikeDirection == Vector2.left) animID = _animIDStrikeLeft;
-        if (strikeDirection == Vector2.down) animID = _animIDStrikeAbove;
-        if (strikeDirection == Vector2.up) animID = _animIDStrikeBelow;
+            _meleeController.SetTrigger(trigger);
+        }
 
-        _meleeController.GetComponent<Animator>().SetTrigger(animID);
-    }
+        /// <summary>Playback speed of the strike animation, used for latency compensation.</summary>
+        public void SetStrikeSpeed(float speed) => _meleeController.SetFloat(StrikeSpeedId, speed);
 
-    public void SetStrikeSpeed(float speed) => _meleeController.SetFloat(_animIDStrikeSpeed, speed);
+        public AnimatorStateInfo GetStateInfo(string layerName) =>
+            _animator.GetCurrentAnimatorStateInfo(_animator.GetLayerIndex(layerName));
 
-    //public void SetReady() => _networkAnimator.SetTrigger(_animIDReady);
-    public void SetReady() => _animator.SetTrigger(_animIDReady);
+        public void TransitionLayerWeight(int layer, float weight, float delta) =>
+            _animator.SetLayerWeight(layer, Mathf.Lerp(_animator.GetLayerWeight(layer), weight, delta * LayerBlendSpeed));
 
+        #region Animation events
+        // Each locomotion blend tree exists twice (free and strafing); only the active one plays sounds.
+        private void OnFootstep(AnimationEvent animationEvent)
+        {
+            if (!_combat.IsStrafing) PlayFootstep(animationEvent);
+        }
 
-    //public void SetBlock() => _networkAnimator.SetTrigger(_animIDBlock);
-    public void SetBlock() => _animator.SetTrigger(_animIDBlock);
+        private void OnFootstepAim(AnimationEvent animationEvent)
+        {
+            if (_combat.IsStrafing) PlayFootstep(animationEvent);
+        }
 
+        private void OnLand(AnimationEvent animationEvent)
+        {
+            if (!_combat.IsStrafing) PlayAtFeet(animationEvent, _landingClip, _footstepVolume);
+        }
 
+        private void OnLandAim(AnimationEvent animationEvent)
+        {
+            if (_combat.IsStrafing) PlayAtFeet(animationEvent, _landingClip, _footstepVolume);
+        }
 
-    public AnimatorStateInfo GetStateInfo(string layerName) => _animator.GetCurrentAnimatorStateInfo(_animator.GetLayerIndex(layerName));
+        private void OnDeath(AnimationEvent animationEvent) => PlayAtFeet(animationEvent, _deathClip, 1f);
 
+        private void PlayFootstep(AnimationEvent animationEvent)
+        {
+            if (_footstepClips.Length == 0) return;
+            PlayAtFeet(animationEvent, _footstepClips[Random.Range(0, _footstepClips.Length)], _footstepVolume);
+        }
 
-    public void TransitionLayerWeight(int layer, float weight, float delta) =>
-        _animator.SetLayerWeight(layer, Mathf.Lerp(_animator.GetLayerWeight(layer), weight, delta * 25f));
-
-    private void OnFootstep(AnimationEvent animationEvent)
-    {
-        if (!_aiming.strafe && animationEvent.animatorClipInfo.weight > 0.5f)
-            if (FootstepAudioClips.Length > 0)
-            {
-                var index = Random.Range(0, FootstepAudioClips.Length);
-                AudioSource.PlayClipAtPoint(FootstepAudioClips[index], transform.TransformPoint(_controller.center), FootstepAudioVolume);
-            }
-    }
-
-    private void OnLand(AnimationEvent animationEvent)
-    {
-        if (!_aiming.strafe && animationEvent.animatorClipInfo.weight > 0.5f)
-            AudioSource.PlayClipAtPoint(LandingAudioClip, transform.TransformPoint(_controller.center), FootstepAudioVolume);
-    }
-
-    private void OnFootstepAim(AnimationEvent animationEvent)
-    {
-        if (_aiming.strafe && animationEvent.animatorClipInfo.weight > 0.5f)
-            if (FootstepAudioClips.Length > 0)
-            {
-                var index = Random.Range(0, FootstepAudioClips.Length);
-                AudioSource.PlayClipAtPoint(FootstepAudioClips[index], transform.TransformPoint(_controller.center), FootstepAudioVolume);
-            }
-    }
-
-    private void OnLandAim(AnimationEvent animationEvent)
-    {
-        if (_aiming.strafe && animationEvent.animatorClipInfo.weight > 0.5f)
-            AudioSource.PlayClipAtPoint(LandingAudioClip, transform.TransformPoint(_controller.center), FootstepAudioVolume);
-    }
-
-
-    private void OnDeath(AnimationEvent animationEvent)
-    {
-        if (animationEvent.animatorClipInfo.weight > 0.5f)
-            AudioSource.PlayClipAtPoint(DeathAudioClip, transform.TransformPoint(_controller.center), 1);
+        private void PlayAtFeet(AnimationEvent animationEvent, AudioClip clip, float volume)
+        {
+            if (clip == null || animationEvent.animatorClipInfo.weight <= AnimationEventWeightThreshold) return;
+            AudioSource.PlayClipAtPoint(clip, transform.TransformPoint(_controller.center), volume);
+        }
+        #endregion
     }
 }

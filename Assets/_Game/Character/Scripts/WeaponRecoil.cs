@@ -1,125 +1,132 @@
-
-using FishNet.Component.Animating;
+using AgaRPG.Player;
 using FishNet.Object;
-using System.Collections;
-using System.Collections.Generic;
-using System.Drawing;
-using System.Net;
 using Unity.Cinemachine;
-using Unity.VisualScripting;
 using UnityEngine;
-using UnityEngine.InputSystem;
+using UnityEngine.Serialization;
 
-public class WeaponRecoil : NetworkBehaviour
+namespace AgaRPG.Combat
 {
-    public Animator rigController;
-
-    [SerializeField] private float _recoilIntensity = 1f;
-    [SerializeField] private float _recoilNoise = .25f;
-    [SerializeField] private float _recoilDuration = .05f;
-    [SerializeField] private Vector2[] _recoilPattern;
-
-    [SerializeField] private float kickback = .1f;
-    [SerializeField] private float recoverySpeed = 10f;
-
-    private float _horRecoil;
-    private float _vertRecoil;
-    private int _index = 0;
-    private float _horMean = 0f;
-
-    private int _animIDRecoil;
-    private float _time = 0f;
-
-    [HideInInspector] public Unity.Cinemachine.CinemachineImpulseSource _impulseSource;
-    private Unity.Cinemachine.CinemachineThirdPersonFollow _aimVirtualCameraFollow;
-
-    private PlayerMovement _playerMovement;
-    private PlayerCameraControl _playerCameraControl;
-    private InputController _input;
-
-    private bool _initalized = false;
-    
-
-    public void Initialize()
+    /// <summary>
+    /// Recoil of a ranged weapon: plays the recoil animation for everyone and, for the owner,
+    /// kicks the camera along a fixed pattern (scaled by movement), shakes it and pushes the
+    /// aim camera back briefly.
+    /// </summary>
+    public class WeaponRecoil : NetworkBehaviour
     {
-        _animIDRecoil = Animator.StringToHash("Recoil");
-        _impulseSource = GetComponentInChildren<Unity.Cinemachine.CinemachineImpulseSource>();
-        _playerMovement = transform.root.GetComponent<PlayerMovement>();
-        _playerCameraControl = transform.root.GetComponent<PlayerCameraControl>();
-        _input = transform.root.GetComponent<InputController>();
+        [SerializeField] private float _recoilIntensity = 1f;
+        [SerializeField] private float _recoilNoise = 0.25f;
+        [SerializeField] private float _recoilDuration = 0.05f;
 
+        [Tooltip("Per-shot recoil: x = vertical, y = horizontal. Cycles while firing.")]
+        [SerializeField] private Vector2[] _recoilPattern;
 
-        for (var idx = 0; idx < _recoilPattern.Length; idx++)
-            _horMean += _recoilPattern[idx].y;
+        [Tooltip("Extra aim camera distance per shot")]
+        [FormerlySerializedAs("kickback")]
+        [SerializeField] private float _kickback = 0.1f;
 
-        _horMean /= _recoilPattern.Length;
+        [Tooltip("How fast the aim camera returns after a kick")]
+        [FormerlySerializedAs("recoverySpeed")]
+        [SerializeField] private float _recoverySpeed = 10f;
 
-        if (IsOwner) _aimVirtualCameraFollow = GameObject.FindGameObjectWithTag("PlayerAimCamera")
-                                                         .GetComponent<Unity.Cinemachine.CinemachineCamera>()
-                                                         .GetComponent<CinemachineThirdPersonFollow>();
-        _initalized = true;
-    }
+        private const string AimCameraTag = "PlayerAimCamera";
+        private const float AimCameraDistance = 2f;
+        private const float VerticalPatternBias = 0.75f;
+        private const float AirborneRecoilMultiplier = 2.5f;
+        private const float MovingRecoilMultiplier = 1.5f;
 
+        private static readonly int RecoilId = Animator.StringToHash("Recoil");
 
-    private int NextIndex(int index) => (index + 1) % _recoilPattern.Length;
+        private float _horizontalRecoil;
+        private float _verticalRecoil;
+        private float _horizontalMean;
+        private float _remainingTime;
+        private int _patternIndex;
+        private bool _initialized;
 
+        private CinemachineImpulseSource _impulseSource;
+        private CinemachineThirdPersonFollow _aimCameraFollow;
+        private PlayerMovement _playerMovement;
+        private PlayerCameraControl _cameraControl;
+        private InputController _input;
 
-    public void Recoil()
-    {
-        //Debug.Log($"RIGCONTROLLER {_rigController}");
-        _animIDRecoil = Animator.StringToHash("Recoil");
-        rigController.SetTrigger(_animIDRecoil);
+        /// <summary>The wielder's rig animator; assigned when the weapon is equipped.</summary>
+        public Animator RigController { get; set; }
 
-        if (base.IsOwner)
+        // Looked up lazily: on a host the weapon is equipped server-side before its client side is
+        // initialised, so IsOwner is still false during Initialize().
+        private CinemachineThirdPersonFollow AimCameraFollow
         {
-            _aimVirtualCameraFollow.CameraDistance = 2f + kickback;
-            _impulseSource.GenerateImpulse(_playerCameraControl.Forward());
-            RecoilPattern();
-        }
-    }
-
-
-    public void ResetPattern() => _index = 0;
-
-
-    private void RecoilPattern()
-    {
-        _time = _recoilDuration;
-
-        _vertRecoil = _recoilPattern[_index].x - .75f;
-        _horRecoil = _recoilPattern[_index].y - _horMean;
-
-        _index = NextIndex(_index);
-    }
-
-
-    private void LateUpdate()
-    {
-        if (!_initalized) return;
-
-        if (!_input.shoot) ResetPattern();
-
-        if (_time > 0)
-        {
-            float multiplier = !_playerMovement.Grounded ? 2.5f
-                                                         : 1f + 1.5f * _playerMovement.speed / _playerMovement.MoveSpeed;
-            float amplitude = (_recoilIntensity + Random.Range(-_recoilNoise, _recoilNoise)) * multiplier;
-
-            _playerCameraControl.cinemachineTargetPitch -= (amplitude * _vertRecoil * Time.deltaTime) / _recoilDuration;
-            _playerCameraControl.cinemachineTargetYaw -= (amplitude * _horRecoil * Time.deltaTime) / _recoilDuration;
-
-            _time -= Time.deltaTime;
+            get
+            {
+                if (_aimCameraFollow == null)
+                {
+                    GameObject aimCamera = GameObject.FindGameObjectWithTag(AimCameraTag);
+                    if (aimCamera != null) _aimCameraFollow = aimCamera.GetComponent<CinemachineThirdPersonFollow>();
+                }
+                return _aimCameraFollow;
+            }
         }
 
-        if (base.IsOwner)
+        /// <summary>Binds the recoil to the player that currently holds the weapon.</summary>
+        public void Initialize()
         {
-            if (_aimVirtualCameraFollow == null)
-                _aimVirtualCameraFollow = GameObject.FindGameObjectWithTag("PlayerAimCamera")
-                                                    .GetComponent<Unity.Cinemachine.CinemachineCamera>()
-                                                    .GetComponent<CinemachineThirdPersonFollow>();
-            if (_aimVirtualCameraFollow.CameraDistance > 2)
-                _aimVirtualCameraFollow.CameraDistance = Mathf.Lerp(_aimVirtualCameraFollow.CameraDistance, 
-                                                                    2, recoverySpeed * Time.deltaTime);
+            Transform player = transform.root;
+            _impulseSource = GetComponentInChildren<CinemachineImpulseSource>();
+            _playerMovement = player.GetComponent<PlayerMovement>();
+            _cameraControl = player.GetComponent<PlayerCameraControl>();
+            _input = player.GetComponent<InputController>();
+
+            _horizontalMean = 0f;
+            foreach (Vector2 kick in _recoilPattern) _horizontalMean += kick.y;
+            if (_recoilPattern.Length > 0) _horizontalMean /= _recoilPattern.Length;
+
+            _initialized = true;
+        }
+
+        public void Recoil()
+        {
+            if (RigController != null) RigController.SetTrigger(RecoilId);
+            if (!base.IsOwner || !_initialized) return;
+
+            if (AimCameraFollow != null) AimCameraFollow.CameraDistance = AimCameraDistance + _kickback;
+            _impulseSource.GenerateImpulse(_cameraControl.CameraForward);
+            NextPatternStep();
+        }
+
+        public void ResetPattern() => _patternIndex = 0;
+
+        private void NextPatternStep()
+        {
+            if (_recoilPattern.Length == 0) return;
+
+            _remainingTime = _recoilDuration;
+            _verticalRecoil = _recoilPattern[_patternIndex].x - VerticalPatternBias;
+            _horizontalRecoil = _recoilPattern[_patternIndex].y - _horizontalMean;
+            _patternIndex = (_patternIndex + 1) % _recoilPattern.Length;
+        }
+
+        private void LateUpdate()
+        {
+            if (!_initialized || !base.IsOwner) return;
+
+            if (!_input.Shoot) ResetPattern();
+
+            if (_remainingTime > 0f)
+            {
+                // More recoil while moving or airborne.
+                float multiplier = !_playerMovement.IsGrounded
+                    ? AirborneRecoilMultiplier
+                    : 1f + MovingRecoilMultiplier * _playerMovement.CurrentSpeed / _playerMovement.WalkSpeed;
+                float amplitude = (_recoilIntensity + Random.Range(-_recoilNoise, _recoilNoise)) * multiplier;
+                float step = amplitude * Time.deltaTime / _recoilDuration;
+
+                _cameraControl.AddRotationOffset(-step * _verticalRecoil, -step * _horizontalRecoil);
+                _remainingTime -= Time.deltaTime;
+            }
+
+            CinemachineThirdPersonFollow follow = AimCameraFollow;
+            if (follow != null && follow.CameraDistance > AimCameraDistance)
+                follow.CameraDistance = Mathf.Lerp(follow.CameraDistance, AimCameraDistance, _recoverySpeed * Time.deltaTime);
         }
     }
 }

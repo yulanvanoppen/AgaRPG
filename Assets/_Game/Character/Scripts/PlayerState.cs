@@ -1,78 +1,38 @@
-﻿using FishNet.Object;
-using System.Linq;
+using FishNet.Object;
 
-public enum DeathState { Respawning, Alive, Dying, Dead }
-public enum RangedState { Inactive, Holstered, Drawn, Aiming, Shooting, Reloading };
-public enum MeleeState { Inactive, Sheathed, Drawn, Readied, Striking, Blocking };
-public enum MoveState { Still, Walking, Sprinting };
-public enum JumpState { Grounded, Airborne }
-
-
-public class PlayerState : NetworkBehaviour
+namespace AgaRPG.Player
 {
-    public DeathState _deathState;
-    public RangedState _rangedState;
-    public MeleeState _meleeState;
-    public MoveState _moveState;
-    public JumpState _jumpState;
+    /// <summary>State of the ranged-weapon layer of a player.</summary>
+    public enum RangedState { Inactive, Holstered, Drawn, Aiming, Shooting, Reloading }
 
-    private PlayerAttributes _attributes;
-    private PlayerWeapons _weapons;
+    /// <summary>State of the melee-weapon layer of a player.</summary>
+    public enum MeleeState { Inactive, Sheathed, Drawn, Readied, Striking, Blocking }
 
-    public void Set(DeathState state)
+    /// <summary>
+    /// Holds the combat state machine values of a player.
+    /// The state is written from the predicted combat tick (see <c>PlayerCombat</c>) on every
+    /// machine that simulates the player, so it is intentionally not network-synchronised.
+    /// </summary>
+    /// <remarks>
+    /// The <c>Is</c> overloads are allocation free: they are called many times per tick, so
+    /// they avoid the <c>params</c> array + LINQ pattern used previously.
+    /// </remarks>
+    public class PlayerState : NetworkBehaviour
     {
-        _deathState = state;
-        if (Is(DeathState.Dying))
-        {
-            if (!Is(RangedState.Holstered)) Set(RangedState.Inactive);
-            if (!Is(MeleeState.Sheathed)) Set(MeleeState.Inactive);
-        }
-        if (Is(DeathState.Respawning))
-        {
-            if (_weapons.rangedWeapon != null) Set(RangedState.Holstered);
-            if (_weapons.meleeWeapon != null) Set(MeleeState.Sheathed);
-        }
+        private RangedState _rangedState;
+        private MeleeState _meleeState;
+
+        public RangedState Ranged => _rangedState;
+        public MeleeState Melee => _meleeState;
+
+        public void Set(RangedState state) => _rangedState = state;
+        public void Set(MeleeState state) => _meleeState = state;
+
+        public bool Is(RangedState a) => _rangedState == a;
+        public bool Is(RangedState a, RangedState b) => _rangedState == a || _rangedState == b;
+
+        public bool Is(MeleeState a) => _meleeState == a;
+        public bool Is(MeleeState a, MeleeState b) => _meleeState == a || _meleeState == b;
+        public bool Is(MeleeState a, MeleeState b, MeleeState c) => _meleeState == a || _meleeState == b || _meleeState == c;
     }
-    public void Set(RangedState state) => _rangedState = state;
-    public void Set(MeleeState state) => _meleeState = state;
-    public void Set(MoveState state) => _moveState = state;
-    public void Set(JumpState state) => _jumpState = state;
-
-    public DeathState GetDeathState() => _deathState;
-    public RangedState GetRangedState() => _rangedState;
-    public MeleeState GetMeleeState() => _meleeState;
-    public MoveState GetMoveState() => _moveState;
-    public JumpState GetJumpState() => _jumpState;
-
-    public bool Is(params DeathState[] states) => states.Any(state => state == _deathState);
-    public bool Is(params RangedState[] states) => states.Any(state => state == _rangedState);
-    public bool Is(params MeleeState[] states) => states.Any(state => state == _meleeState);
-    public bool Is(params MoveState[] states) => states.Any(state => state == _moveState);
-    public bool Is(params JumpState[] states) => states.Any(state => state == _jumpState);
-
-
-    private void Awake()
-    {
-        _attributes = GetComponent<PlayerAttributes>();
-        _weapons = GetComponent<PlayerWeapons>();
-    }
-
-
-    //public override void OnStartClient()
-    //{
-    //    base.OnStartClient();
-    //    Initialize();
-    //}
-
-
-    //private void Initialize()
-    //{
-        
-    //}
-
-
-    //private void Update()
-    //{
-    //    if (!base.IsOwner) return;
-    //}
 }

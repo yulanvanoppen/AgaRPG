@@ -1,63 +1,60 @@
-using FishNet;
-using FishNet.Object;
-using System.Collections;
-using System.Collections.Generic;
-using System.Threading.Tasks;
 using UnityEngine;
+using UnityEngine.Serialization;
 
-public class WeaponPickup : MonoBehaviour
+namespace AgaRPG.Combat
 {
-    [SerializeField] private AbstractWeapon _weaponPrefab;
-
-    private float _originalY;
-    public float floatSpeed;
-
-    private bool active = true;
-    private float cooldown = 0f;
-    private Material _material;
-
-    private void Awake() => _material = GetComponent<Renderer>().material;
-
-    private void Start() => _originalY = transform.position.y;
-
-    private void Update()
+    /// <summary>
+    /// Floating weapon pickup placed in the scene (not networked). Every machine animates it and
+    /// shows the cooldown locally, but only the server acts on a pickup: it equips the weapon
+    /// through <see cref="PlayerWeapons.ServerEquip"/>. A pickup without a weapon prefab
+    /// unequips the player.
+    /// </summary>
+    public class WeaponPickup : MonoBehaviour
     {
-        transform.position = new Vector3(transform.position.x,
-                                         _originalY + (Mathf.Sin(floatSpeed * Time.time) * .04f),
-                                         transform.position.z);
-        transform.Rotate(0f, floatSpeed * 5f * Time.deltaTime, 0f);
+        [Tooltip("Weapon to equip; leave empty to make this an 'unequip' pad")]
+        [SerializeField] private AbstractWeapon _weaponPrefab;
 
-        if (cooldown > 0) cooldown -= Time.deltaTime;
-        else active = true;
+        [FormerlySerializedAs("floatSpeed")]
+        [SerializeField] private float _floatSpeed = 1f;
 
-        _material.color = (active ? Color.white : Color.red) - new Color(0f, 0f, 0f, .95f);
-    }
+        [SerializeField] private float _bobHeight = 0.04f;
+        [SerializeField] private float _cooldownDuration = 1f;
 
-    private async void OnTriggerEnter(Collider other)
-    {
-        if (!active) return;
+        private static readonly Color ReadyColor = new Color(1f, 1f, 1f, 0.05f);
+        private static readonly Color CooldownColor = new Color(1f, 0f, 0f, 0.05f);
 
-        PlayerWeapons player = other.gameObject.GetComponent<PlayerWeapons>();
-        if (player != null && player.IsClientInitialized && player.IsOwner && active)
+        private float _baseHeight;
+        private float _cooldown;
+        private Material _material;
+
+        private bool IsReady => _cooldown <= 0f;
+
+        private void Awake() => _material = GetComponent<Renderer>().material;
+
+        private void Start() => _baseHeight = transform.position.y;
+
+        private void Update()
         {
-            player.RpcUnequip();
-            if (_weaponPrefab != null)
-            {
-                //player.RequestWeapon(_weaponPrefab);
-                Debug.Log($"SPAWNING WEAPON FOR {player.Owner}");
-                AbstractWeapon newWeapon = Instantiate(_weaponPrefab);
-                InstanceFinder.ServerManager.Spawn(newWeapon.gameObject, player.Owner);
+            Vector3 position = transform.position;
+            position.y = _baseHeight + Mathf.Sin(_floatSpeed * Time.time) * _bobHeight;
+            transform.position = position;
+            transform.Rotate(0f, _floatSpeed * 5f * Time.deltaTime, 0f);
 
-                active = false;
-                cooldown = 1f;
-                await Task.Delay(50);
-                player.RpcEquip(newWeapon);
-            }
+            if (_cooldown > 0f) _cooldown -= Time.deltaTime;
+            _material.color = IsReady ? ReadyColor : CooldownColor;
         }
 
-        cooldown = 1f;
+        private void OnTriggerEnter(Collider other)
+        {
+            if (!IsReady || !other.TryGetComponent(out PlayerWeapons player)) return;
+
+            _cooldown = _cooldownDuration;
+            if (player.IsServerInitialized) player.ServerEquip(_weaponPrefab);
+        }
+
+        private void OnDestroy()
+        {
+            if (_material != null) Destroy(_material);
+        }
     }
 }
-
-
-

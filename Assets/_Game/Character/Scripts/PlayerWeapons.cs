@@ -1,204 +1,197 @@
-﻿using Unity.Cinemachine;
-using FishNet;
-using FishNet.Component.Animating;
-using FishNet.Connection;
+using AgaRPG.Player;
 using FishNet.Object;
-using FishNet.Object.Prediction;
-using FishNet.Object.Synchronizing;
-using FishNet.Transporting;
-using Unity.VisualScripting;
+using UnityEngine;
+using UnityEngine.Animations.Rigging;
+using UnityEngine.Serialization;
 #if UNITY_EDITOR
 using UnityEditor.Animations;
 #endif
-using UnityEngine;
-using UnityEngine.Animations.Rigging;
-#if ENABLE_INPUT_SYSTEM
-using UnityEngine.InputSystem;
-using UnityEngine.InputSystem.XR;
-#endif
 
-
-
-public class PlayerWeapons : NetworkBehaviour
+namespace AgaRPG.Combat
 {
-    // weapon
-    public RaycastWeapon rangedWeapon;
-    public MeleeWeapon meleeWeapon;
-    private Transform _weaponPivot;
-    public Transform meleeWeaponHandPivot;
-    public Transform meleeWeaponPivot;
-    public Transform meleeWeaponHint;
-    public Transform leftHandPivot;
-    public Transform leftHandHint;
-    public Transform chestPivot;
-    public Transform chestHint;
-
-    // animation rigging
-    [Tooltip("Animation rig for gun posing")]
-    [SerializeField] private Rig _poseRig;    
-
-    [Tooltip("Gripping position transforms")]
-    public Transform leftGrip;
-    public Transform rightGrip;
-    public Transform leftGripHint;
-    public Transform rightGripHint;
-
-    public AnimationClip meleeWeaponPositionClip;
-
-    private Animator _animator;
-    private AnimatorOverrideController _animatorOverride;
-
-    // player
-    private PlayerState _state;
-
-
-
-    private void Awake()
+    /// <summary>
+    /// Owns the weapon a player holds (one at a time) and the rigging / animator setup for it.
+    /// Equipping is server authoritative: the server spawns the weapon with the player as owner
+    /// and tells every client which weapon to attach through a buffered RPC, so late joiners
+    /// see the correct weapon too.
+    /// </summary>
+    public class PlayerWeapons : NetworkBehaviour
     {
-        RaycastWeapon existingWeapon = GetComponentInChildren<RaycastWeapon>();
-        if (existingWeapon != null) Equip(existingWeapon);
-        _weaponPivot = transform.Find("Graphical").Find("Weapons").Find("RangedWeaponHolder").Find("WeaponPivot");
-        _animator = GetComponent<Animator>();
-        _animatorOverride = _animator.runtimeAnimatorController as AnimatorOverrideController;
-        _state = GetComponent<PlayerState>();
-    }
+        [Header("Melee")]
+        [Tooltip("Hand bone the melee weapon is parented to")]
+        [FormerlySerializedAs("meleeWeaponHandPivot")]
+        [SerializeField] private Transform _meleeWeaponHandPivot;
 
+        [Header("Rigging")]
+        [Tooltip("Animation rig for ranged weapon posing")]
+        [SerializeField] private Rig _poseRig;
 
-    public void Equip(AbstractWeapon newWeapon)
-    {
-        if (newWeapon == null) return;
+#pragma warning disable CS0169, CS0649 // only used by the editor-only context menus below
+        [Header("Hand pose authoring (editor context menus)")]
+        [FormerlySerializedAs("leftGrip")]
+        [SerializeField] private Transform _leftGrip;
+        [FormerlySerializedAs("rightGrip")]
+        [SerializeField] private Transform _rightGrip;
+        [FormerlySerializedAs("leftGripHint")]
+        [SerializeField] private Transform _leftGripHint;
+        [FormerlySerializedAs("rightGripHint")]
+        [SerializeField] private Transform _rightGripHint;
+        [FormerlySerializedAs("meleeWeaponPivot")]
+        [SerializeField] private Transform _meleeWeaponPivot;
+        [FormerlySerializedAs("meleeWeaponHint")]
+        [SerializeField] private Transform _meleeWeaponHint;
+        [FormerlySerializedAs("leftHandPivot")]
+        [SerializeField] private Transform _leftHandPivot;
+        [FormerlySerializedAs("leftHandHint")]
+        [SerializeField] private Transform _leftHandHint;
+        [FormerlySerializedAs("meleeWeaponPositionClip")]
+        [SerializeField] private AnimationClip _meleeWeaponPositionClip;
+#pragma warning restore CS0169, CS0649
 
-        if (newWeapon is RaycastWeapon)
+        private const string GripLayerName = "Weapon Gripping";
+        private const string GripOverrideClip = "EmptyGrip";
+
+        private Transform _rangedWeaponPivot;
+        private Animator _animator;
+        private Animator _rigLayerAnimator;
+        private AnimatorOverrideController _animatorOverride;
+        private PlayerState _state;
+
+        public RaycastWeapon RangedWeapon { get; private set; }
+        public MeleeWeapon MeleeWeapon { get; private set; }
+
+        private void Awake()
         {
-            rangedWeapon = (RaycastWeapon)newWeapon;
-            rangedWeapon.transform.SetParent(_weaponPivot, false);
-            rangedWeapon.Initialize();
+            Transform graphical = transform.Find("Graphical");
+            _rangedWeaponPivot = graphical.Find("Weapons/RangedWeaponHolder/WeaponPivot");
+            _rigLayerAnimator = graphical.Find("RigLayer").GetComponent<Animator>();
+            _animator = GetComponent<Animator>();
+            _animatorOverride = _animator.runtimeAnimatorController as AnimatorOverrideController;
+            _state = GetComponent<PlayerState>();
 
-            _state.Set(RangedState.Drawn);
-
-            _poseRig.weight = 1f;
-            _animator.SetLayerWeight(_animator.GetLayerIndex("Weapon Gripping"), 1f);
-
-            rangedWeapon.weaponRecoil.rigController = transform.Find("Graphical")
-                                                         .Find("RigLayer")
-                                                         .GetComponent<Animator>();
-                                                         //.GetComponent<NetworkAnimator>();
-            Invoke(nameof(SetAnimationDelayed), .001f);
+            // Support a weapon placed on the prefab for testing.
+            RaycastWeapon existingWeapon = GetComponentInChildren<RaycastWeapon>();
+            if (existingWeapon != null) Attach(existingWeapon);
         }
 
-        if (newWeapon is MeleeWeapon)
+        public void SetPoseRig(bool on) => _poseRig.weight = RangedWeapon != null && on ? 1f : 0f;
+
+        #region Networked equip (server)
+        /// <summary>
+        /// Replaces the current weapon with a new instance of <paramref name="weaponPrefab"/>,
+        /// or just unequips when it is null. Server only.
+        /// </summary>
+        [Server]
+        public void ServerEquip(AbstractWeapon weaponPrefab)
         {
-            meleeWeapon = (MeleeWeapon)newWeapon;
-            meleeWeapon.transform.SetParent(meleeWeaponHandPivot, false);
-            meleeWeapon.Initialize();
+            // Explicit Unity null checks: '??' would not treat destroyed objects as null.
+            AbstractWeapon previous = RangedWeapon != null ? RangedWeapon : MeleeWeapon != null ? MeleeWeapon : null;
 
-            _state.Set(MeleeState.Drawn);
-        }
-    }
-
-
-    [ServerRpc(RunLocally = true)]
-    public void RpcEquip(AbstractWeapon newWeapon)
-    {
-        Equip(newWeapon);
-        if (base.IsServerInitialized) ObsRpcEquip(newWeapon);
-    }
-
-    [ObserversRpc(ExcludeOwner = true, BufferLast = true)]
-    private void ObsRpcEquip(AbstractWeapon newWeapon) => Equip(newWeapon);
-
-
-    public void Unequip()
-    {
-        if (!_state.Is(RangedState.Inactive))
-        {
-            _poseRig.weight = 0f;
-            _animator.SetLayerWeight(_animator.GetLayerIndex("Weapon Gripping"), 0f);
-            _animatorOverride["EmptyGrip"] = null;
-
-            if (base.IsOwner && rangedWeapon != null)
+            AbstractWeapon weapon = null;
+            if (weaponPrefab != null)
             {
-                rangedWeapon.transform.SetParent(null, true);
-                rangedWeapon.Despawn();
+                weapon = Instantiate(weaponPrefab);
+                base.Spawn(weapon.gameObject, base.Owner);
             }
 
-            _state.Set(RangedState.Inactive);
+            SetWeapon(weapon);
+            ObserversRpcSetWeapon(weapon);
+
+            if (previous != null && previous.IsSpawned) previous.Despawn();
         }
-        
-        if (!_state.Is(MeleeState.Inactive))
+
+        // ExcludeServer: the server already applied it in ServerEquip (this also covers a host's client).
+        [ObserversRpc(BufferLast = true, ExcludeServer = true)]
+        private void ObserversRpcSetWeapon(AbstractWeapon weapon) => SetWeapon(weapon);
+        #endregion
+
+        #region Local attach / detach
+        private void SetWeapon(AbstractWeapon weapon)
         {
-            if (base.IsOwner && meleeWeapon != null)
-            {
-                meleeWeapon.transform.SetParent(null, true);
-                meleeWeapon.Despawn();
-            }
-            _state.Set(MeleeState.Inactive);
+            Detach();
+            if (weapon != null) Attach(weapon);
         }
-    }
 
-    [ServerRpc(RunLocally = true)]
-    public void RpcUnequip()
-    {
-        Unequip();
-        if (base.IsServerInitialized) ObsRpcUnequip();
-    }
+        private void Attach(AbstractWeapon weapon)
+        {
+            switch (weapon)
+            {
+                case RaycastWeapon ranged:
+                    RangedWeapon = ranged;
+                    ranged.transform.SetParent(_rangedWeaponPivot, false);
+                    ranged.Recoil.RigController = _rigLayerAnimator;
+                    ranged.Initialize();
 
-    [ObserversRpc(ExcludeOwner = true, BufferLast = true)]
-    private void ObsRpcUnequip() => Unequip();
+                    _state.Set(RangedState.Drawn);
+                    _poseRig.weight = 1f;
+                    _animator.SetLayerWeight(_animator.GetLayerIndex(GripLayerName), 1f);
 
+                    // The override must be applied after the animator has bound the new hierarchy.
+                    Invoke(nameof(ApplyGripOverride), 0.001f);
+                    break;
 
-    private void SetAnimationDelayed() => _animatorOverride["EmptyGrip"] = rangedWeapon.handPositionClip;
+                case MeleeWeapon melee:
+                    MeleeWeapon = melee;
+                    melee.transform.SetParent(_meleeWeaponHandPivot, false);
+                    melee.Initialize();
+                    _state.Set(MeleeState.Drawn);
+                    break;
+            }
+        }
 
+        private void Detach()
+        {
+            if (!_state.Is(RangedState.Inactive))
+            {
+                CancelInvoke(nameof(ApplyGripOverride));
+                _poseRig.weight = 0f;
+                _animator.SetLayerWeight(_animator.GetLayerIndex(GripLayerName), 0f);
+                _animatorOverride[GripOverrideClip] = null;
+                _state.Set(RangedState.Inactive);
+            }
 
-    public void SetPoseRig(bool on) => _poseRig.weight = rangedWeapon != null && on ? 1f : 0f;
+            if (!_state.Is(MeleeState.Inactive)) _state.Set(MeleeState.Inactive);
 
+            // The server despawns the objects; locally we only drop the references.
+            if (RangedWeapon != null) RangedWeapon.transform.SetParent(null, true);
+            if (MeleeWeapon != null) MeleeWeapon.transform.SetParent(null, true);
+            RangedWeapon = null;
+            MeleeWeapon = null;
+        }
 
-    //public void RequestWeapon(RaycastWeapon weaponPrefab)
-    //{
-    //    if (!base.IsOwner) return;
-    //    RpcRequestWeapon(weaponPrefab);
-    //}
-
-
-    //[ServerRpc]
-    //private void RpcRequestWeapon(RaycastWeapon weaponPrefab)
-    //{
-    //    RaycastWeapon newWeapon = Instantiate(weaponPrefab,
-    //                                          transform.Find("Graphical")
-    //                                                   .Find("WeaponHolder")
-    //                                                   .Find("WeaponPivot"));
-    //    InstanceFinder.ServerManager.Spawn(newWeapon.gameObject, base.Owner);
-    //    Equip(newWeapon);
-    //}
+        private void ApplyGripOverride()
+        {
+            if (RangedWeapon != null) _animatorOverride[GripOverrideClip] = RangedWeapon.HandPositionClip;
+        }
+        #endregion
 
 #if UNITY_EDITOR
-    [ContextMenu("Save hand positions")]
-    void SaveHandPositions()
-    {
-        GameObjectRecorder recorder = new GameObjectRecorder(gameObject);
-        recorder.BindComponentsOfType<Transform>(_weaponPivot.gameObject, false);
-        recorder.BindComponentsOfType<Transform>(leftGrip.gameObject, false);
-        recorder.BindComponentsOfType<Transform>(rightGrip.gameObject, false);
-        recorder.BindComponentsOfType<Transform>(leftGripHint.gameObject, false);
-        recorder.BindComponentsOfType<Transform>(rightGripHint.gameObject, false);
-        recorder.TakeSnapshot(0f);
-        recorder.SaveToClip(rangedWeapon.handPositionClip);
-        UnityEditor.AssetDatabase.SaveAssets();
-    }
+        [ContextMenu("Save hand positions")]
+        private void SaveHandPositions()
+        {
+            var recorder = new GameObjectRecorder(gameObject);
+            recorder.BindComponentsOfType<Transform>(_rangedWeaponPivot.gameObject, false);
+            recorder.BindComponentsOfType<Transform>(_leftGrip.gameObject, false);
+            recorder.BindComponentsOfType<Transform>(_rightGrip.gameObject, false);
+            recorder.BindComponentsOfType<Transform>(_leftGripHint.gameObject, false);
+            recorder.BindComponentsOfType<Transform>(_rightGripHint.gameObject, false);
+            recorder.TakeSnapshot(0f);
+            recorder.SaveToClip(RangedWeapon.HandPositionClip);
+            UnityEditor.AssetDatabase.SaveAssets();
+        }
 
-    [ContextMenu("Save melee weapon position")]
-    void SaveWeaponPosition()
-    {
-        GameObjectRecorder recorder = new GameObjectRecorder(gameObject);
-        recorder.BindComponentsOfType<Transform>(meleeWeaponPivot.gameObject, false);
-        recorder.BindComponentsOfType<Transform>(meleeWeaponHint.gameObject, false);
-        recorder.BindComponentsOfType<Transform>(leftHandPivot.gameObject, false);
-        recorder.BindComponentsOfType<Transform>(leftHandHint.gameObject, false);
-        //recorder.BindComponentsOfType<Transform>(chestPivot.gameObject, false);
-        //recorder.BindComponentsOfType<Transform>(chestHint.gameObject, false);
-        recorder.TakeSnapshot(0f);
-        recorder.SaveToClip(meleeWeaponPositionClip);
-        UnityEditor.AssetDatabase.SaveAssets();
-    }
+        [ContextMenu("Save melee weapon position")]
+        private void SaveWeaponPosition()
+        {
+            var recorder = new GameObjectRecorder(gameObject);
+            recorder.BindComponentsOfType<Transform>(_meleeWeaponPivot.gameObject, false);
+            recorder.BindComponentsOfType<Transform>(_meleeWeaponHint.gameObject, false);
+            recorder.BindComponentsOfType<Transform>(_leftHandPivot.gameObject, false);
+            recorder.BindComponentsOfType<Transform>(_leftHandHint.gameObject, false);
+            recorder.TakeSnapshot(0f);
+            recorder.SaveToClip(_meleeWeaponPositionClip);
+            UnityEditor.AssetDatabase.SaveAssets();
+        }
 #endif
+    }
 }
