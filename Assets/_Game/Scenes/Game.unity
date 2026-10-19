@@ -36335,7 +36335,7 @@ MonoBehaviour:
     m_PersistentCalls:
       m_Calls:
       - m_Target: {fileID: 1757751273}
-        m_TargetAssemblyTypeName: PauzeMenu, Assembly-CSharp
+        m_TargetAssemblyTypeName: AgaRPG.UI.PauseMenu, Assembly-CSharp
         m_MethodName: Desktop
         m_Mode: 1
         m_Arguments:
@@ -110371,7 +110371,7 @@ MonoBehaviour:
     m_PersistentCalls:
       m_Calls:
       - m_Target: {fileID: 1757751273}
-        m_TargetAssemblyTypeName: PauzeMenu, Assembly-CSharp
+        m_TargetAssemblyTypeName: AgaRPG.UI.PauseMenu, Assembly-CSharp
         m_MethodName: ResumeGame
         m_Mode: 1
         m_Arguments:
@@ -113533,7 +113533,7 @@ MonoBehaviour:
     m_PersistentCalls:
       m_Calls:
       - m_Target: {fileID: 1757751273}
-        m_TargetAssemblyTypeName: PauzeMenu, Assembly-CSharp
+        m_TargetAssemblyTypeName: AgaRPG.UI.PauseMenu, Assembly-CSharp
         m_MethodName: ChangeColor
         m_Mode: 2
         m_Arguments:
