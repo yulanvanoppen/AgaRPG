@@ -16,6 +16,9 @@ every death shrinks you back down.
 - **Latency-compensated strike animations** — the owner's swing is slowed at the start and catches up,
   so it lines up with the server's authoritative hit window instead of visibly cutting through opponents
   early (see [Strike latency compensation](#strike-latency-compensation)).
+- **Swept melee hit detection**: the blade is swept between frames (interpolated poses, sphere casts
+  along the whole blade), so hits register even during frame or tick hitches instead of the blade
+  passing through targets between two samples.
 - **Hitscan crossbows** with fire rate, clip and reload, recoil patterns, camera kick and tracers.
 - **Server-authoritative weapons and damage**: weapon pickups, equipping, hit registration, death,
   respawn and spawn protection all run on the server; clients only render the results.

@@ -101,6 +101,7 @@ namespace AgaRPG.Combat
         private const float ReadyTransitionSpeed = 15f;
         private const float BodyTurnSpeed = 20f;
         private const float AimRayLength = 999f;
+        private const float AimFallbackDistance = 100f;
         #endregion
 
         #region State
@@ -139,6 +140,8 @@ namespace AgaRPG.Combat
         private readonly StrikeTimingCompensator _strikeCompensator = new StrikeTimingCompensator();
 
         private CombatData _lastCombatData;
+        private bool _hasCombatData;
+        private readonly RaycastHit[] _aimHits = new RaycastHit[16];
 
         // Strafing is decided by the owner and relayed by the server to all other clients.
         private readonly SyncVar<bool> _strafeSync = new(new SyncTypeSettings(
@@ -168,6 +171,22 @@ namespace AgaRPG.Combat
                 Released = released;
                 ScreenCenterRay = screenCenterRay;
                 _tick = 0;
+            }
+
+            /// <summary>
+            /// False for <c>default</c> data (zero quaternion, zero-length ray), which FishNet hands
+            /// to non-owners on ticks without input. Simulating that would snap the strike pivot to
+            /// an invalid rotation and aim at the world origin.
+            /// </summary>
+            public bool IsValid => ScreenCenterRay.direction.sqrMagnitude > 0.5f
+                                   && Quaternion.Dot(CameraRotation, CameraRotation) > 0.5f;
+
+            /// <summary>Same look direction, but no aiming, shooting or striking (e.g. while dead).</summary>
+            public CombatData WithoutActions()
+            {
+                CombatData copy = this;
+                copy.Aim = copy.Shoot = copy.Released = false;
+                return copy;
             }
 
             private uint _tick;
@@ -304,15 +323,23 @@ namespace AgaRPG.Combat
         {
             if (!base.IsOwner)
             {
-                // Without fresh input from the owner, predict that it keeps doing the same thing.
-                if ((state & ReplicateState.Created) != 0) _lastCombatData = data;
+                // Without fresh, valid input from the owner, predict that it keeps doing the same thing.
+                if ((state & ReplicateState.Created) != 0 && data.IsValid)
+                {
+                    _lastCombatData = data;
+                    _hasCombatData = true;
+                }
                 else
                 {
                     uint tick = data.GetTick();
                     data = _lastCombatData;
                     data.SetTick(tick);
                 }
+
+                // Nothing received yet (e.g. a spectator that just joined): keep the current pose.
+                if (!_hasCombatData) return;
             }
+            else if (!data.IsValid) return;
 
             Simulate(data, (float)base.TimeManager.TickDelta, (state & ReplicateState.Replayed) != 0);
         }
@@ -328,15 +355,19 @@ namespace AgaRPG.Combat
         #region Shared simulation
         private void Simulate(CombatData data, float delta, bool replaying)
         {
-            bool hasAimPoint = Physics.Raycast(data.ScreenCenterRay, out RaycastHit hit, AimRayLength, _aimLayerMask);
-            if (hasAimPoint) _aimTarget.position = hit.point;
+            // Dead players can't aim, block or strike; this also drops them out of any combat
+            // stance so the upper-body layers and rigs release the death animation.
+            if (_attributes.IsDead) data = data.WithoutActions();
+
+            Vector3 aimPoint = FindAimPoint(data.ScreenCenterRay, out RaycastHit hit);
+            _aimTarget.position = aimPoint;
 
             // Everything below is either visual or must only happen once per tick.
             if (replaying) return;
 
             if (_state.Is(RangedState.Aiming, RangedState.Shooting)
                 || _state.Is(MeleeState.Readied, MeleeState.Striking, MeleeState.Blocking))
-                FaceAimPoint(hasAimPoint ? hit.point : Vector3.zero, delta);
+                FaceAimPoint(aimPoint, delta);
 
             _meleeStrikePivot.transform.rotation = data.CameraRotation;
 
@@ -350,11 +381,34 @@ namespace AgaRPG.Combat
             else MeleeCombat(data, delta);
         }
 
+        /// <summary>
+        /// Point under the crosshair: the closest hit that isn't part of this player (its own
+        /// hitboxes are on the regular player layers on other machines), or a far point along
+        /// the ray when nothing is hit (aiming at the sky).
+        /// </summary>
+        private Vector3 FindAimPoint(Ray ray, out RaycastHit closest)
+        {
+            closest = default;
+            int count = Physics.RaycastNonAlloc(ray, _aimHits, AimRayLength, _aimLayerMask);
+
+            float closestDistance = float.PositiveInfinity;
+            for (int i = 0; i < count; i++)
+            {
+                RaycastHit candidate = _aimHits[i];
+                if (candidate.distance >= closestDistance || candidate.collider.transform.IsChildOf(transform)) continue;
+                closest = candidate;
+                closestDistance = candidate.distance;
+            }
+
+            return closest.collider != null ? closest.point : ray.GetPoint(AimFallbackDistance);
+        }
+
         private void FaceAimPoint(Vector3 aimPoint, float delta)
         {
             Vector3 flatTarget = new Vector3(aimPoint.x, transform.position.y, aimPoint.z);
-            Vector3 direction = (flatTarget - transform.position).normalized;
-            transform.forward = Vector3.Lerp(transform.forward, direction, delta * BodyTurnSpeed);
+            Vector3 direction = flatTarget - transform.position;
+            if (direction.sqrMagnitude < 0.0001f) return;
+            transform.forward = Vector3.Lerp(transform.forward, direction.normalized, delta * BodyTurnSpeed);
         }
 
         private void BlendRigs(float delta)
@@ -436,6 +490,14 @@ namespace AgaRPG.Combat
             _strikeTimer = Mathf.Max(0f, _strikeTimer - delta);
             _directionCooldown = Mathf.Max(0f, _directionCooldown - delta);
             weapon.RecoverTime(delta);
+
+            // Dying cancels a readied or running strike (blocking already ends as Aim is cleared).
+            if (_attributes.IsDead && _state.Is(MeleeState.Readied, MeleeState.Striking))
+            {
+                _state.Set(MeleeState.Drawn);
+                _strikeCompensator.Reset();
+                _animation.SetStrikeSpeed(1f);
+            }
 
             if (_debugAlwaysStrike) _state.Set(MeleeState.Striking);
             else if (_state.Is(MeleeState.Striking) && _strikeTimer <= 0f) _state.Set(MeleeState.Drawn);
