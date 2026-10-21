@@ -12,8 +12,8 @@ namespace AgaRPG.Networking
 {
     /// <summary>
     /// Wrapper around Unity Gaming Services sign-in: anonymous sign-in, "Sign in with Unity"
-    /// (Player Accounts) and player names. Each ParrelSync clone uses its own UGS profile so
-    /// several editor instances can be signed in as different players.
+    /// (Player Accounts) and player names. Each ParrelSync clone, and each copy of a standalone
+    /// build running on the same PC, uses its own UGS profile so they sign in as different players.
     /// </summary>
     public static class Authentication
     {
@@ -122,9 +122,66 @@ namespace AgaRPG.Networking
 #if UNITY_EDITOR
             return ClonesManager.IsClone() ? ClonesManager.GetArgument() : "Main";
 #else
-            return "Standalone";
+            if (TryGetCommandLineProfile(out string profile)) return profile;
+            return GetInstanceProfile();
 #endif
         }
+
+#if !UNITY_EDITOR
+        private const string ProfileArgument = "-profile";
+        private const int MaxLocalInstances = 8;
+
+        // Held for the lifetime of the process; marks which instance slot this copy of the game uses.
+#pragma warning disable CS0414 // only kept alive, never read
+        private static System.Threading.Mutex _instanceMutex;
+#pragma warning restore CS0414
+
+        /// <summary>
+        /// <c>AgaRPG.exe -profile Alice</c> signs in with a fixed profile (letters, digits, '-' and
+        /// '_', at most 30 characters).
+        /// </summary>
+        private static bool TryGetCommandLineProfile(out string profile)
+        {
+            profile = null;
+            string[] args = Environment.GetCommandLineArgs();
+            for (int i = 0; i < args.Length - 1; i++)
+            {
+                if (!string.Equals(args[i], ProfileArgument, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!IsValidProfileName(args[i + 1])) break;
+                profile = args[i + 1];
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Every copy of the game running on the same PC gets its own profile, and with it its own
+        /// anonymous player, so testers can play against themselves. The first instance always
+        /// uses "Standalone", so its Cloud Save data (size, colour) is kept between launches.
+        /// </summary>
+        private static string GetInstanceProfile()
+        {
+            for (int slot = 0; slot < MaxLocalInstances; slot++)
+            {
+                var mutex = new System.Threading.Mutex(true, $"AgaRPG.Instance.{slot}", out bool createdNew);
+                if (createdNew)
+                {
+                    _instanceMutex = mutex;
+                    return slot == 0 ? "Standalone" : $"Standalone{slot + 1}";
+                }
+                mutex.Dispose();
+            }
+            return "Standalone" + Guid.NewGuid().ToString("N").Substring(0, 8);
+        }
+
+        private static bool IsValidProfileName(string name)
+        {
+            if (string.IsNullOrEmpty(name) || name.Length > 30) return false;
+            foreach (char c in name)
+                if (!char.IsLetterOrDigit(c) && c != '-' && c != '_') return false;
+            return true;
+        }
+#endif
 
         private static void HookPlayerAccounts()
         {

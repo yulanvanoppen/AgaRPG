@@ -12,8 +12,8 @@ PlayerSettings:
   targetDevice: 2
   useOnDemandResources: 0
   accelerometerFrequency: 60
-  companyName: DefaultCompany
-  productName: AgarMMORPG
+  companyName: Yulan van Oppen
+  productName: AgaRPG
   defaultCursor: {fileID: 0}
   cursorHotspot: {x: 0, y: 0}
   m_SplashScreenBackgroundColor: {r: 0.13725491, g: 0.12156863, b: 0.1254902, a: 1}
@@ -150,7 +150,8 @@ PlayerSettings:
   visionOSBundleVersion: 1.0
   tvOSBundleVersion: 1.0
   bundleVersion: 0.1.0
-  preloadedAssets: []
+  preloadedAssets:
+  - {fileID: 11400000, guid: 9e7be553448fa2546aea5752021cbcf7, type: 2}
   metroInputSource: 0
   wsaTransparentSwapchain: 0
   xboxOneDisableKinectGpuReservation: 1
@@ -973,7 +974,7 @@ PlayerSettings:
   cloudProjectId: 42cf6fea-0c20-402a-80e2-8676f4a7cc3f
   framebufferDepthMemorylessMode: 0
   qualitySettingsNames: []
-  projectName: AgarMMORPG
+  projectName: AgaRPG
   organizationId: yulanvanoppen
   cloudEnabled: 0
   legacyClampBlendShapeWeights: 0

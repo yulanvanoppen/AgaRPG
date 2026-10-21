@@ -7,6 +7,17 @@ every death shrinks you back down.
 
 > _Screenshot / GIF here — e.g. a melee duel and a crossbow volley (`docs/demo.gif`)._
 
+## Download and play (Windows)
+
+Grab the latest **`AgaRPG-Windows-v*.zip`** from the
+[Releases page](https://github.com/yulanvanoppen/AgaRPG/releases/latest), extract it and run `AgaRPG.exe`.
+Press **Play**: you join an open game or host a new one, and others join you over the internet
+(no port forwarding). To try multiplayer on your own, start the game twice. Each copy signs in as
+a different player.
+
+> Windows may warn that the app is unrecognised because it isn't code-signed: choose
+> **More info → Run anyway**.
+
 ## Highlights
 
 - **Client-side prediction with server reconciliation** for movement and combat
@@ -56,6 +67,18 @@ Walk over a floating weapon to pick it up; the empty pad unequips you.
   With quick start on, a clone joins the main editor's local game; with it off, each clone signs in
   with its own Unity Services profile and joins through the lobby.
 
+### Making a release
+
+- **Locally:** bump *Project Settings → Player → Version*, then **AgaRPG → Build Windows (zip)**.
+  This builds `Builds/AgaRPG-Windows/AgaRPG.exe` and zips it to `Builds/AgaRPG-Windows-v<version>.zip`,
+  ready to attach to a [GitHub release](https://github.com/yulanvanoppen/AgaRPG/releases/new).
+- **Automatically:** push a tag such as `v0.5.0`. The `Release Windows build` workflow
+  ([`.github/workflows/release-windows.yml`](.github/workflows/release-windows.yml)) builds the player
+  with [GameCI](https://game.ci) and publishes the zip as a release. It needs the `UNITY_EMAIL`,
+  `UNITY_PASSWORD` and `UNITY_LICENSE` repository secrets.
+- Running two copies of a build on one PC works because each copy uses its own Unity Services
+  profile (`Standalone`, `Standalone2`, ...). Use `AgaRPG.exe -profile <name>` to pick one explicitly.
+
 ## Architecture
 
 ```
@@ -68,7 +91,7 @@ Assets/_Game/
 │   ├── UI/            pause menu, reticle, health bars and name tags, loading overlay
 │   ├── Audio/         music playlist and cross-fading
 │   ├── Dev/           development switches (quick start)
-│   └── Editor/        Quick Start menu
+│   └── Editor/        Quick Start and Build Windows menus
 ├── Character/  Environment/  Lobby/   models, animations, prefabs, audio, materials
 ```
 
