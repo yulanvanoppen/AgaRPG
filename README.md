@@ -1,11 +1,11 @@
 # AgaRPG — Networked Third-Person Combat Demo
 
-A multiplayer third-person action prototype built with **Unity 6** and **[Fish-Networking](https://fish-networking.gitbook.io/docs)**.
+An _Agar_ multiplayer third-person action/RPG prototype built with **Unity 6** and **[Fish-Networking](https://fish-networking.gitbook.io/docs)**.
 Players sign in, are matched into an online session through Unity Gaming Services, and fight with
 crossbows and a directional-melee sword. Every kill makes you bigger, stronger and slower to kill;
-every death shrinks you back down.
+every death shrinks you back down. Implementing the RPG element is left as an exercise to the user.
 
-> _Screenshot / GIF here — e.g. a melee duel and a crossbow volley (`docs/demo.gif`)._
+![Pistol crossbow action screenshot.](Screenshots/header.png)
 
 ## Download and play (Windows)
 
@@ -30,7 +30,7 @@ a different player.
 - **Swept melee hit detection**: the blade is swept between frames (interpolated poses, sphere casts
   along the whole blade), so hits register even during frame or tick hitches instead of the blade
   passing through targets between two samples.
-- **Hitscan crossbows** with fire rate, clip and reload, recoil patterns, camera kick and tracers.
+- **Hitscan crossbows** with fire rate, clip and automatic reload, recoil patterns, camera kick and tracers.
 - **Server-authoritative weapons and damage**: weapon pickups, equipping, hit registration, death,
   respawn and spawn protection all run on the server; clients only render the results.
 - **Online services**: anonymous sign-in or Unity Player Accounts, player names, Cloud Save for each
@@ -48,7 +48,7 @@ a different player.
 | Melee strike | Hold left mouse, flick the mouse to choose a direction, release to strike |
 | Pause menu / colour picker | Esc |
 
-Walk over a floating weapon to pick it up; the empty pad unequips you.
+_Very basic weapon switching:_ Walk over a floating weapon to pick it up; the empty pad unequips you.
 
 ## Running the project
 
@@ -118,7 +118,7 @@ spawns a player for each client when it receives that client's spawn request.
 Visual-only work (animations, sounds, effects) is skipped during reconciliation replays, and purely
 cosmetic objects such as tracers are never network-spawned.
 
-### Strike latency compensation
+### Strike latency compensation details
 
 With prediction, the owner starts a swing immediately, but the server only simulates that input about
 half a round trip (plus its input buffer) later. `StrikeTimingCompensator` slows the owner's swing with a
